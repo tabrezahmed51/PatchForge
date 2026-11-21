@@ -1,0 +1,160 @@
+rules_version = '2';
+service cloud.firestore {
+  match /databases/{database}/documents {
+    // Global default-deny safety net
+    match /{document=**} {
+      allow read, write: if false;
+    }
+
+    // Hardened reusable primitives
+    function isSignedIn() {
+      return request.auth != null;
+    }
+
+    function isOwner(userId) {
+      return isSignedIn() && request.auth.uid == userId;
+    }
+
+    function isValidId(id) {
+      return id is string && id.size() >= 1 && id.size() <= 128 && id.matches('^[a-zA-Z0-9_\\-]+$');
+    }
+
+    function incoming() {
+      return request.resource.data;
+    }
+
+    function existing() {
+      return resource.data;
+    }
+
+    function isValidTimestamp(ts) {
+      return ts is timestamp && ts <= request.time;
+    }
+
+    function isValidUserProfile(data) {
+      return data.userId is string && data.userId == request.auth.uid && data.userId.size() <= 128 &&
+             data.displayName is string && data.displayName.size() >= 1 && data.displayName.size() <= 80 &&
+             (!('email' in data) || (data.email is string && data.email.size() <= 120)) &&
+             isValidTimestamp(data.createdAt) &&
+             isValidTimestamp(data.updatedAt);
+    }
+
+    function isValidAuditRun(data) {
+      return data.userId is string && data.userId == request.auth.uid && data.userId.size() <= 128 &&
+             data.title is string && data.title.size() >= 1 && data.title.size() <= 120 &&
+             data.filePath is string && data.filePath.size() >= 1 && data.filePath.size() <= 300 &&
+             data.engineMode in ['DUAL_ENGINE', 'SECURITY_ONLY', 'AGENTIC_ONLY'] &&
+             data.modelId is string && data.modelId.size() >= 1 && data.modelId.size() <= 80 &&
+             data.summary is string && data.summary.size() <= 4000 &&
+             data.riskScore is int && data.riskScore >= 0 && data.riskScore <= 100 &&
+             data.cyclomaticPeak is int && data.cyclomaticPeak >= 0 && data.cyclomaticPeak <= 1000 &&
+             data.maxNestingDepth is int && data.maxNestingDepth >= 0 && data.maxNestingDepth <= 100 &&
+             data.findingCount is int && data.findingCount >= 0 && data.findingCount <= 500 &&
+             isValidTimestamp(data.createdAt) &&
+             isValidTimestamp(data.updatedAt);
+    }
+
+    function isValidAuditFinding(data) {
+      return data.userId is string && data.userId == request.auth.uid && data.userId.size() <= 128 &&
+             data.runId is string && isValidId(data.runId) &&
+             data.file_path is string && data.file_path.size() >= 1 && data.file_path.size() <= 300 &&
+             data.line_bounds is string && data.line_bounds.size() >= 1 && data.line_bounds.size() <= 64 &&
+             data.threat_category in [
+               'TYPOSQUATTING', 'INSTALL_SCRIPT', 'TELEMETRY_EXFIL',
+               'ABANDONED_PKG', 'CVE_VULNERABILITY', 'AST_COMPLEXITY',
+               'SEMANTIC_LOGIC', 'LINT_CONFIG'
+             ] &&
+             data.severity in ['CRITICAL', 'HIGH', 'MEDIUM', 'LOW'] &&
+             data.description is string && data.description.size() >= 1 && data.description.size() <= 2000 &&
+             data.replacement_snippet is string && data.replacement_snippet.size() <= 8000 &&
+             data.original_snippet is string && data.original_snippet.size() <= 8000 &&
+             data.engine_type in ['SECURITY_ENGINE', 'AGENTIC_REVIEW'] &&
+             data.patch_status in ['PENDING', 'APPROVED', 'DISMISSED', 'QUEUED_SYNC', 'APPLIED'] &&
+             isValidTimestamp(data.createdAt) &&
+             isValidTimestamp(data.updatedAt);
+    }
+
+    // Private User Profile (PII strictly restricted to owner)
+    match /users/{userId} {
+      allow get: if isOwner(userId) && isValidId(userId);
+      allow list: if false;
+
+      allow create: if isOwner(userId) &&
+                       isValidId(userId) &&
+                       incoming().keys().hasAll(['userId', 'displayName', 'createdAt', 'updatedAt']) &&
+                       incoming().keys().hasOnly(['userId', 'displayName', 'email', 'createdAt', 'updatedAt']) &&
+                       isValidUserProfile(incoming());
+
+      allow update: if isOwner(userId) &&
+                       isValidId(userId) &&
+                       isValidUserProfile(incoming()) &&
+                       incoming().userId == existing().userId &&
+                       incoming().createdAt == existing().createdAt &&
+                       incoming().diff(existing()).affectedKeys().hasOnly(['displayName', 'email', 'updatedAt']);
+
+      allow delete: if isOwner(userId) && isValidId(userId);
+
+      // Per-user synced Dual-Engine Audit Runs
+      match /audit_runs/{runId} {
+        allow get: if isOwner(userId) && isValidId(runId);
+        allow list: if isOwner(userId);
+
+        allow create: if isOwner(userId) &&
+                         isValidId(runId) &&
+                         incoming().keys().hasAll([
+                           'userId', 'title', 'filePath', 'engineMode', 'modelId',
+                           'summary', 'riskScore', 'cyclomaticPeak', 'maxNestingDepth',
+                           'findingCount', 'createdAt', 'updatedAt'
+                         ]) &&
+                         incoming().keys().hasOnly([
+                           'userId', 'title', 'filePath', 'engineMode', 'modelId',
+                           'summary', 'riskScore', 'cyclomaticPeak', 'maxNestingDepth',
+                           'findingCount', 'createdAt', 'updatedAt'
+                         ]) &&
+                         isValidAuditRun(incoming());
+
+        allow update: if isOwner(userId) &&
+                         isValidId(runId) &&
+                         isValidAuditRun(incoming()) &&
+                         incoming().userId == existing().userId &&
+                         incoming().createdAt == existing().createdAt &&
+                         incoming().diff(existing()).affectedKeys().hasOnly(['summary', 'findingCount', 'updatedAt']);
+
+        allow delete: if isOwner(userId) && isValidId(runId);
+      }
+
+      // Per-user synced AuditFinding documents
+      match /audit_findings/{findingId} {
+        allow get: if isOwner(userId) && isValidId(findingId);
+        allow list: if isOwner(userId);
+
+        allow create: if isOwner(userId) &&
+                         isValidId(findingId) &&
+                         incoming().keys().hasAll([
+                           'userId', 'runId', 'file_path', 'line_bounds', 'threat_category',
+                           'severity', 'description', 'replacement_snippet', 'original_snippet',
+                           'engine_type', 'patch_status', 'createdAt', 'updatedAt'
+                         ]) &&
+                         incoming().keys().hasOnly([
+                           'userId', 'runId', 'file_path', 'line_bounds', 'threat_category',
+                           'severity', 'description', 'replacement_snippet', 'original_snippet',
+                           'engine_type', 'patch_status', 'createdAt', 'updatedAt'
+                         ]) &&
+                         isValidAuditFinding(incoming());
+
+        allow update: if isOwner(userId) &&
+                         isValidId(findingId) &&
+                         isValidAuditFinding(incoming()) &&
+                         incoming().userId == existing().userId &&
+                         incoming().runId == existing().runId &&
+                         incoming().createdAt == existing().createdAt &&
+                         (
+                           // Action: Update patch approval/remediation status
+                           incoming().diff(existing()).affectedKeys().hasOnly(['patch_status', 'updatedAt'])
+                         );
+
+        allow delete: if isOwner(userId) && isValidId(findingId);
+      }
+    }
+  }
+}

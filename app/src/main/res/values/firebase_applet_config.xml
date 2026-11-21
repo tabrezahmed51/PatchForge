@@ -1,4 +1,5 @@
 <?xml version="1.0" encoding="utf-8" standalone="no"?>
 <resources>
+    <string name="firestore_database_id" translatable="false">ai-studio-android-patchfor-a0598b6a-fdc9-4bcf-9fa7-b847655817a3</string>
     <string name="recaptcha_site_key" translatable="false">6LcSAysuAAAAAICb9iPWf0bwL7LzKCmJ0J0lIpNV</string>
 </resources>

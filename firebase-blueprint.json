@@ -1,0 +1,75 @@
+{
+  "entities": {
+    "UserProfile": {
+      "title": "UserProfile",
+      "description": "Authenticated PatchForge engineer profile scoped strictly to owner.",
+      "type": "object",
+      "properties": {
+        "userId": { "type": "string", "description": "Firebase Auth UID matching path userId." },
+        "displayName": { "type": "string", "description": "Operator display name." },
+        "email": { "type": "string", "description": "Optional verified Google email." },
+        "createdAt": { "type": "string", "format": "date-time", "description": "Server timestamp (FieldValue.serverTimestamp())." },
+        "updatedAt": { "type": "string", "format": "date-time", "description": "Server timestamp (FieldValue.serverTimestamp())." }
+      },
+      "required": ["userId", "displayName", "createdAt", "updatedAt"]
+    },
+    "CloudAuditRun": {
+      "title": "CloudAuditRun",
+      "description": "Synced dual-engine security and semantic PR audit run.",
+      "type": "object",
+      "properties": {
+        "userId": { "type": "string", "description": "Owner Firebase Auth UID." },
+        "title": { "type": "string", "description": "Short target filename or PR title." },
+        "filePath": { "type": "string", "description": "Target manifest or source file path." },
+        "engineMode": { "type": "string", "enum": ["DUAL_ENGINE", "SECURITY_ONLY", "AGENTIC_ONLY"] },
+        "modelId": { "type": "string", "description": "AI model identifier used for the run." },
+        "summary": { "type": "string", "description": "Executive audit summary." },
+        "riskScore": { "type": "integer", "description": "Composite risk score 0..100." },
+        "cyclomaticPeak": { "type": "integer", "description": "Peak AST cyclomatic complexity." },
+        "maxNestingDepth": { "type": "integer", "description": "Maximum observed nesting depth." },
+        "findingCount": { "type": "integer", "description": "Total findings produced by this run." },
+        "createdAt": { "type": "string", "format": "date-time", "description": "Server timestamp (FieldValue.serverTimestamp())." },
+        "updatedAt": { "type": "string", "format": "date-time", "description": "Server timestamp (FieldValue.serverTimestamp())." }
+      },
+      "required": ["userId", "title", "filePath", "engineMode", "modelId", "summary", "riskScore", "cyclomaticPeak", "maxNestingDepth", "findingCount", "createdAt", "updatedAt"]
+    },
+    "CloudAuditFinding": {
+      "title": "CloudAuditFinding",
+      "description": "Synced structured AuditFinding mapping file_path, line_bounds, threat_category, severity, description, and replacement_snippet.",
+      "type": "object",
+      "properties": {
+        "userId": { "type": "string", "description": "Owner Firebase Auth UID." },
+        "runId": { "type": "string", "description": "Parent audit run identifier." },
+        "file_path": { "type": "string", "description": "Target file path." },
+        "line_bounds": { "type": "string", "description": "Line range e.g. L12-L18." },
+        "threat_category": {
+          "type": "string",
+          "enum": ["TYPOSQUATTING", "INSTALL_SCRIPT", "TELEMETRY_EXFIL", "ABANDONED_PKG", "CVE_VULNERABILITY", "AST_COMPLEXITY", "SEMANTIC_LOGIC", "LINT_CONFIG"]
+        },
+        "severity": { "type": "string", "enum": ["CRITICAL", "HIGH", "MEDIUM", "LOW"] },
+        "description": { "type": "string", "description": "Technical explanation of the finding." },
+        "replacement_snippet": { "type": "string", "description": "Self-healing drop-in replacement code snippet." },
+        "original_snippet": { "type": "string", "description": "Original problematic snippet." },
+        "engine_type": { "type": "string", "enum": ["SECURITY_ENGINE", "AGENTIC_REVIEW"] },
+        "patch_status": { "type": "string", "enum": ["PENDING", "APPROVED", "DISMISSED", "QUEUED_SYNC", "APPLIED"] },
+        "createdAt": { "type": "string", "format": "date-time", "description": "Server timestamp (FieldValue.serverTimestamp())." },
+        "updatedAt": { "type": "string", "format": "date-time", "description": "Server timestamp (FieldValue.serverTimestamp())." }
+      },
+      "required": ["userId", "runId", "file_path", "line_bounds", "threat_category", "severity", "description", "replacement_snippet", "original_snippet", "engine_type", "patch_status", "createdAt", "updatedAt"]
+    }
+  },
+  "firestore": {
+    "/users/{userId}": {
+      "schema": { "$ref": "#/entities/UserProfile" },
+      "description": "Private authenticated operator profile."
+    },
+    "/users/{userId}/audit_runs/{runId}": {
+      "schema": { "$ref": "#/entities/CloudAuditRun" },
+      "description": "Per-user cloud-synced dual-engine audit runs."
+    },
+    "/users/{userId}/audit_findings/{findingId}": {
+      "schema": { "$ref": "#/entities/CloudAuditFinding" },
+      "description": "Per-user cloud-synced AuditFinding records and patch approval statuses."
+    }
+  }
+}
