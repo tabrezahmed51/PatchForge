@@ -22,6 +22,6 @@ dependencyResolutionManagement {
   }
 }
 
-rootProject.name = "ForgeAudit"
+rootProject.name = "PatchForge"
 
 include(":app")

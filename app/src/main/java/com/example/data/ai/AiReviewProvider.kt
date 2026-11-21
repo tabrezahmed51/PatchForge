@@ -1,0 +1,132 @@
+package com.example.data.ai
+
+import kotlinx.coroutines.flow.Flow
+
+enum class AuditEngineMode(val id: String, val label: String) {
+    DUAL_ENGINE("DUAL_ENGINE", "Dual Engine"),
+    SECURITY_ONLY("SECURITY_ONLY", "Security Engine"),
+    AGENTIC_ONLY("AGENTIC_ONLY", "Agentic PR")
+}
+
+enum class AiModelProfile(
+    val modelId: String,
+    val displayName: String,
+    val badge: String,
+    val description: String,
+    val highThinking: Boolean = false
+) {
+    CARBON_HIGH_THINKING(
+        modelId = "gemini-4-carbon",
+        displayName = "Deep Reason",
+        badge = "4-CARBON · HIGH THINK",
+        description = "Deep AST, supply-chain & concurrency reasoning with ThinkingLevel.HIGH",
+        highThinking = true
+    ),
+    NEON_INTERACTIVE(
+        modelId = "gemini-4-neon",
+        displayName = "Complex Interactive",
+        badge = "4-NEON",
+        description = "Complex multi-file interactive code review & refactoring"
+    ),
+    HYDROGEN_GENERAL(
+        modelId = "gemini-4-hydrogen",
+        displayName = "General Ops",
+        badge = "4-HYDROGEN",
+        description = "Balanced semantic PR audit & manifest security inspection"
+    ),
+    FLASH_LITE_FAST(
+        modelId = "gemini-3.1-flash-lite",
+        displayName = "Rapid Triage",
+        badge = "3.1-FLASH-LITE",
+        description = "Low-latency lint, manifest lookup & fast diff triage"
+    )
+}
+
+enum class AgentPersona(
+    val id: String,
+    val label: String,
+    val systemInstruction: String
+) {
+    SUPPLY_CHAIN_AUDITOR(
+        id = "SUPPLY_CHAIN_AUDITOR",
+        label = "Supply-Chain Auditor",
+        systemInstruction = """
+            You are PatchForge's Principal Supply-Chain Security Auditor (Socket.dev style).
+            Specialize in inspecting package.json, requirements.txt, go.mod, and Gradle dependency graphs for:
+            typosquatting, malicious preinstall/postinstall scripts, telemetry exfiltration, abandoned/unmaintained packages, dependency confusion, and CVEs.
+            Be concise, operational, and precise. Cite exact package names, threat vectors, and actionable remediation steps or minimal diff snippets.
+        """.trimIndent()
+    ),
+    AST_SEMANTIC_REVIEWER(
+        id = "AST_SEMANTIC_REVIEWER",
+        label = "AST PR Reviewer",
+        systemInstruction = """
+            You are PatchForge's Senior Agentic Code Reviewer (Open-Rabbit style).
+            Specialize in AST structural complexity, cyclomatic/cognitive hotspots, concurrency bugs, null-safety hazards, resource leaks, and semantic regressions across Kotlin, Python, Go, and TypeScript.
+            Give crisp, actionable engineering guidance with exact line references and minimal replacement code.
+        """.trimIndent()
+    ),
+    SELF_HEALING_ENGINEER(
+        id = "SELF_HEALING_ENGINEER",
+        label = "Patch Engineer",
+        systemInstruction = """
+            You are PatchForge's Self-Healing Patch Engineer.
+            Your role is to verify Git patches, resolve merge conflicts, harden config/lint fixes, and produce minimal, production-safe unified diffs that can be cleanly applied with `git apply`.
+            Keep responses terse, high-signal, and strictly engineering-focused.
+        """.trimIndent()
+    )
+}
+
+data class StructuredFinding(
+    val filePath: String,
+    val lineBounds: String,
+    val threatCategory: String,
+    val severity: String,
+    val description: String,
+    val replacementSnippet: String,
+    val originalSnippet: String,
+    val engineType: String,
+    val packageOrSymbol: String,
+    val cyclomaticComplexity: Int
+)
+
+data class AstMetrics(
+    val maxNestingDepth: Int,
+    val cyclomaticPeak: Int,
+    val hotspots: List<String>
+)
+
+data class StructuredAuditResult(
+    val summary: String,
+    val riskScore: Int,
+    val astMetrics: AstMetrics,
+    val findings: List<StructuredFinding>
+)
+
+data class ChatTurn(
+    val role: String, // "user" or "model"
+    val content: String
+)
+
+/**
+ * Provider-agnostic model orchestration contract.
+ * Implementations can bind native Firebase AI Logic (Gemini) or route to external FastAPI adapters.
+ */
+interface AiReviewProvider {
+    val providerName: String
+
+    suspend fun runStructuredAudit(
+        filePath: String,
+        payload: String,
+        engineMode: AuditEngineMode,
+        modelProfile: AiModelProfile
+    ): StructuredAuditResult
+
+    fun streamChatReply(
+        history: List<ChatTurn>,
+        userMessage: String,
+        persona: AgentPersona,
+        modelProfile: AiModelProfile,
+        auditContext: String?
+    ): Flow<String>
+}

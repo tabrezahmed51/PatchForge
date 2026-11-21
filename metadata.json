@@ -1,5 +1,5 @@
 {
-  "name": "ForgeAudit",
+  "name": "PatchForge",
   "description": "Industrial mobile control client for semantic PR review, supply-chain dependency security auditing, self-healing Git patches, and Gemini-powered engineering triage.",
   "requestFramePermissions": [],
   "majorCapabilities": ["MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"]

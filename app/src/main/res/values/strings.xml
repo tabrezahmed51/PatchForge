@@ -1,3 +1,58 @@
 <resources>
-    <string name="app_name">ForgeAudit</string>
+    <string name="app_name">PatchForge</string>
+
+    <!-- Navigation Destinations -->
+    <string name="nav_scan">Scan</string>
+    <string name="nav_patches">Patches</string>
+    <string name="nav_agent">Agent</string>
+    <string name="nav_control">Control</string>
+
+    <!-- Scan Workspace -->
+    <string name="scan_header_subtitle">DUAL-ENGINE SUPPLY-CHAIN &amp; SEMANTIC PR AUDITOR</string>
+    <string name="scan_engine_dual">Dual Engine</string>
+    <string name="scan_engine_security">Security</string>
+    <string name="scan_engine_agentic">Agentic PR</string>
+    <string name="scan_run_audit">Execute Audit</string>
+    <string name="scan_running">Running Inference…</string>
+    <string name="scan_high_thinking_label">High Thinking (gemini-4-carbon)</string>
+    <string name="scan_input_file_label">Target File / Manifest Path</string>
+    <string name="scan_input_code_label">Manifest, Lockfile, or PR Diff Payload</string>
+    <string name="scan_quick_fixtures">Quick-Load Test Targets</string>
+    <string name="scan_empty_findings_title">No Active Audit Findings</string>
+    <string name="scan_empty_findings_body">Load a dependency manifest or paste a PR diff above, then execute a live Gemini structured audit.</string>
+
+    <!-- Patch Workbench -->
+    <string name="patches_title">Self-Healing Patch Loop</string>
+    <string name="patches_subtitle">INSPECT, APPROVE, COPY OR DISPATCH UNIFIED GIT DIFFS</string>
+    <string name="patches_copy_single">Copy Patch</string>
+    <string name="patches_copy_bundle">Copy Approved Bundle</string>
+    <string name="patches_approve">Approve</string>
+    <string name="patches_dismiss">Dismiss</string>
+    <string name="patches_dispatch_branch">Dispatch to Branch</string>
+    <string name="patches_target_branch_label">Target Git Branch</string>
+    <string name="patches_commit_msg_label">Commit Message</string>
+    <string name="patches_empty_title">No Generated Patches Yet</string>
+    <string name="patches_empty_body">Run a Security or Agentic PR audit in the Scan workspace to generate self-healing replacement diffs.</string>
+
+    <!-- Agent Chat -->
+    <string name="agent_title">Gemini Triage Agent</string>
+    <string name="agent_subtitle">MULTI-TURN SECURITY &amp; AST REASONING COPILOT</string>
+    <string name="agent_input_placeholder">Ask about CVEs, AST complexity, or patch safety…</string>
+    <string name="agent_send_cd">Send message</string>
+    <string name="agent_clear_cd">Clear conversation</string>
+    <string name="agent_attach_context">Attach Audit Context</string>
+    <string name="agent_empty_title">Triage Session Ready</string>
+    <string name="agent_empty_body">Select an engineering role and Gemini model tier above. Enable High Thinking (gemini-4-carbon) for deep supply-chain or concurrency analysis.</string>
+
+    <!-- Control Plane -->
+    <string name="control_title">FastAPI Control Plane</string>
+    <string name="control_subtitle">REST / WEBSOCKET WORKERS &amp; OFFLINE RETRY QUEUE</string>
+    <string name="control_endpoint_label">FastAPI Backend Base URL</string>
+    <string name="control_token_label">Bearer Token (Optional)</string>
+    <string name="control_save_probe">Save &amp; Probe /health</string>
+    <string name="control_ws_connect">Connect Stream</string>
+    <string name="control_ws_disconnect">Disconnect</string>
+    <string name="control_retry_all">Retry Queue</string>
+    <string name="control_clear_queue">Purge Completed</string>
+    <string name="control_queue_empty">Offline retry queue is clear. Pending remote mutations will buffer here automatically if the FastAPI backend is unreachable.</string>
 </resources>
