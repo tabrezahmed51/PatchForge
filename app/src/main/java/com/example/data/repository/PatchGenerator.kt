@@ -1,10 +1,10 @@
 package com.example.data.repository
 
-import com.example.data.local.FindingEntity
+import com.example.data.local.AuditFinding
 
 object PatchGenerator {
 
-    fun buildUnifiedDiff(finding: FindingEntity): String {
+    fun buildUnifiedDiff(finding: AuditFinding): String {
         val cleanPath = finding.filePath.trim().removePrefix("/")
         val startLine = parseStartLine(finding.lineBounds)
         val removedLines = finding.originalSnippet
@@ -33,7 +33,7 @@ object PatchGenerator {
         }.trimEnd()
     }
 
-    fun buildCombinedPatchBundle(findings: List<FindingEntity>): String {
+    fun buildCombinedPatchBundle(findings: List<AuditFinding>): String {
         if (findings.isEmpty()) return ""
         return findings.joinToString(separator = "\n\n") { buildUnifiedDiff(it) }
     }

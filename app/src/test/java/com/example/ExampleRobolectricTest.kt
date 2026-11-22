@@ -2,7 +2,7 @@ package com.example
 
 import android.content.Context
 import androidx.test.core.app.ApplicationProvider
-import com.example.data.local.FindingEntity
+import com.example.data.local.AuditFinding
 import com.example.data.repository.PatchGenerator
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertTrue
@@ -23,9 +23,9 @@ class ExampleRobolectricTest {
     }
 
     @Test
-    fun `patch generator emits unified git diff with strict finding fields`() {
-        val finding = FindingEntity(
-            findingId = "RUN-1-F1",
+    fun `patch generator emits unified git diff with strict AuditFinding fields`() {
+        val finding = AuditFinding(
+            id = "RUN-1-F1",
             runId = "RUN-1",
             filePath = "services/web/package.json",
             lineBounds = "L10-L10",

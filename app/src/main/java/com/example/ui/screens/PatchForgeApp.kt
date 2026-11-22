@@ -11,15 +11,14 @@ import androidx.compose.foundation.layout.navigationBars
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.safeDrawing
 import androidx.compose.foundation.layout.statusBars
-import androidx.compose.foundation.layout.windowInsetsPadding
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Build
-import androidx.compose.material.icons.filled.Dns
 import androidx.compose.material.icons.filled.Radar
+import androidx.compose.material.icons.filled.Settings
 import androidx.compose.material.icons.filled.SmartToy
 import androidx.compose.material.icons.outlined.Build
-import androidx.compose.material.icons.outlined.Dns
 import androidx.compose.material.icons.outlined.Radar
+import androidx.compose.material.icons.outlined.Settings
 import androidx.compose.material.icons.outlined.SmartToy
 import androidx.compose.material3.Badge
 import androidx.compose.material3.BadgedBox
@@ -38,15 +37,23 @@ import androidx.compose.material3.SnackbarHostState
 import androidx.compose.material3.Text
 import androidx.compose.material3.VerticalDivider
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.key
+import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.rememberCoroutineScope
+import androidx.compose.runtime.setValue
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.vector.ImageVector
+import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.unit.dp
+import androidx.credentials.CredentialManager
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
+import androidx.lifecycle.viewmodel.compose.viewModel
 import androidx.navigation.NavGraph.Companion.findStartDestination
 import androidx.navigation.compose.NavHost
 import androidx.navigation.compose.composable
@@ -56,11 +63,14 @@ import com.example.R
 import com.example.data.local.PatchStatus
 import com.example.ui.theme.ForgeTheme
 import com.example.ui.viewmodel.PatchForgeViewModel
+import com.google.firebase.Firebase
+import com.google.firebase.auth.FirebaseAuth
+import com.google.firebase.auth.auth
 
 const val ROUTE_SCAN = "scan_workspace"
 const val ROUTE_PATCHES = "patch_workbench"
 const val ROUTE_AGENT = "agent_chat"
-const val ROUTE_CONTROL = "control_plane"
+const val ROUTE_SETTINGS = "settings"
 
 private data class NavDestinationItem(
     val route: String,
@@ -93,17 +103,76 @@ private val TopLevelDestinations = listOf(
         testTag = "nav_agent"
     ),
     NavDestinationItem(
-        route = ROUTE_CONTROL,
-        labelRes = R.string.nav_control,
-        selectedIcon = Icons.Filled.Dns,
-        unselectedIcon = Icons.Outlined.Dns,
-        testTag = "nav_control"
+        route = ROUTE_SETTINGS,
+        labelRes = R.string.nav_settings,
+        selectedIcon = Icons.Filled.Settings,
+        unselectedIcon = Icons.Outlined.Settings,
+        testTag = "nav_settings"
     )
 )
 
+/**
+ * Root authentication gate. Unauthenticated operators land on Google Sign-In (AuthScreen);
+ * authenticated sessions are strictly scoped by key(user.uid) to prevent cross-account data leaks.
+ */
+@Composable
+fun AppRoot() {
+    val context = LocalContext.current
+    val scope = rememberCoroutineScope()
+    val credentialManager = remember(context) { CredentialManager.create(context) }
+
+    var currentUser by remember { mutableStateOf(Firebase.auth.currentUser) }
+
+    DisposableEffect(Unit) {
+        val listener = FirebaseAuth.AuthStateListener { auth ->
+            currentUser = auth.currentUser
+        }
+        Firebase.auth.addAuthStateListener(listener)
+        onDispose {
+            Firebase.auth.removeAuthStateListener(listener)
+        }
+    }
+
+    val user = currentUser
+    if (user == null) {
+        AuthScreen(
+            onAuthSuccess = {
+                currentUser = Firebase.auth.currentUser
+            }
+        )
+    } else {
+        key(user.uid) {
+            val viewModel: PatchForgeViewModel = viewModel(
+                key = "patchforge_vm_${user.uid}",
+                factory = PatchForgeViewModel.Factory(
+                    context = context.applicationContext,
+                    currentUserId = user.uid,
+                    userDisplayName = user.displayName?.takeIf { it.isNotBlank() } ?: "PatchForge Operator",
+                    userEmail = user.email
+                )
+            )
+            PatchForgeApp(
+                viewModel = viewModel,
+                userDisplayName = user.displayName?.takeIf { it.isNotBlank() } ?: "PatchForge Operator",
+                userEmail = user.email,
+                onSignOut = {
+                    signOutOperator(
+                        credentialManager = credentialManager,
+                        scope = scope,
+                        onSignOutComplete = { currentUser = null }
+                    )
+                }
+            )
+        }
+    }
+}
+
 @Composable
 fun PatchForgeApp(
-    viewModel: PatchForgeViewModel
+    viewModel: PatchForgeViewModel,
+    userDisplayName: String,
+    userEmail: String?,
+    onSignOut: () -> Unit
 ) {
     val navController = rememberNavController()
     val backStackEntry by navController.currentBackStackEntryAsState()
@@ -170,7 +239,7 @@ fun PatchForgeApp(
                             val selected = currentRoute == dest.route
                             val badgeCount = when (dest.route) {
                                 ROUTE_PATCHES -> pendingPatchCount
-                                ROUTE_CONTROL -> activeQueueCount
+                                ROUTE_SETTINGS -> activeQueueCount
                                 else -> 0
                             }
                             NavigationRailItem(
@@ -205,6 +274,9 @@ fun PatchForgeApp(
                         PatchForgeNavHost(
                             navController = navController,
                             viewModel = viewModel,
+                            userDisplayName = userDisplayName,
+                            userEmail = userEmail,
+                            onSignOut = onSignOut,
                             onNavigateToPatches = { navigateTo(ROUTE_PATCHES) }
                         )
                     }
@@ -234,7 +306,7 @@ fun PatchForgeApp(
                             val selected = currentRoute == dest.route
                             val badgeCount = when (dest.route) {
                                 ROUTE_PATCHES -> pendingPatchCount
-                                ROUTE_CONTROL -> activeQueueCount
+                                ROUTE_SETTINGS -> activeQueueCount
                                 else -> 0
                             }
                             NavigationBarItem(
@@ -274,6 +346,9 @@ fun PatchForgeApp(
                     PatchForgeNavHost(
                         navController = navController,
                         viewModel = viewModel,
+                        userDisplayName = userDisplayName,
+                        userEmail = userEmail,
+                        onSignOut = onSignOut,
                         onNavigateToPatches = { navigateTo(ROUTE_PATCHES) }
                     )
                 }
@@ -311,6 +386,9 @@ private fun BadgedIcon(
 private fun PatchForgeNavHost(
     navController: androidx.navigation.NavHostController,
     viewModel: PatchForgeViewModel,
+    userDisplayName: String,
+    userEmail: String?,
+    onSignOut: () -> Unit,
     onNavigateToPatches: () -> Unit
 ) {
     NavHost(
@@ -329,8 +407,13 @@ private fun PatchForgeNavHost(
         composable(ROUTE_AGENT) {
             AgentChatScreen(viewModel = viewModel)
         }
-        composable(ROUTE_CONTROL) {
-            ControlPlaneScreen(viewModel = viewModel)
+        composable(ROUTE_SETTINGS) {
+            SettingsScreen(
+                viewModel = viewModel,
+                userDisplayName = userDisplayName,
+                userEmail = userEmail,
+                onSignOut = onSignOut
+            )
         }
     }
 }

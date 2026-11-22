@@ -1,5 +1,6 @@
 package com.example.data.ai
 
+import android.graphics.Bitmap
 import kotlinx.coroutines.flow.Flow
 
 enum class AuditEngineMode(val id: String, val label: String) {
@@ -32,7 +33,7 @@ enum class AiModelProfile(
         modelId = "gemini-4-hydrogen",
         displayName = "General Ops",
         badge = "4-HYDROGEN",
-        description = "Balanced semantic PR audit & manifest security inspection"
+        description = "Balanced semantic PR audit, search grounding & multimodal inspection"
     ),
     FLASH_LITE_FAST(
         modelId = "gemini-3.1-flash-lite",
@@ -103,6 +104,17 @@ data class StructuredAuditResult(
     val findings: List<StructuredFinding>
 )
 
+data class GroundedSource(
+    val title: String,
+    val uri: String
+)
+
+data class GroundedSearchResult(
+    val query: String,
+    val answer: String,
+    val sources: List<GroundedSource>
+)
+
 data class ChatTurn(
     val role: String, // "user" or "model"
     val content: String
@@ -110,7 +122,6 @@ data class ChatTurn(
 
 /**
  * Provider-agnostic model orchestration contract.
- * Implementations can bind native Firebase AI Logic (Gemini) or route to external FastAPI adapters.
  */
 interface AiReviewProvider {
     val providerName: String
@@ -129,4 +140,14 @@ interface AiReviewProvider {
         modelProfile: AiModelProfile,
         auditContext: String?
     ): Flow<String>
+
+    suspend fun runSearchGroundedVerification(query: String): GroundedSearchResult
+
+    suspend fun transcribeAudio(audioBytes: ByteArray, mimeType: String = "audio/mp4"): String
+
+    suspend fun runMultimodalPrompt(
+        prompt: String,
+        image: Bitmap?,
+        modelProfile: AiModelProfile = AiModelProfile.HYDROGEN_GENERAL
+    ): String
 }

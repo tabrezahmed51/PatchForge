@@ -1,5 +1,7 @@
 package com.example.ui.screens
 
+import android.content.Intent
+import android.net.Uri
 import androidx.compose.animation.AnimatedVisibility
 import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.Image
@@ -23,7 +25,6 @@ import androidx.compose.foundation.layout.widthIn
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.rememberScrollState
-import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ArrowForward
 import androidx.compose.material.icons.filled.Bolt
@@ -32,8 +33,11 @@ import androidx.compose.material.icons.filled.CheckCircle
 import androidx.compose.material.icons.filled.ContentCopy
 import androidx.compose.material.icons.filled.ErrorOutline
 import androidx.compose.material.icons.filled.Memory
+import androidx.compose.material.icons.filled.OpenInNew
 import androidx.compose.material.icons.filled.PlayArrow
 import androidx.compose.material.icons.filled.Psychology
+import androidx.compose.material.icons.filled.Public
+import androidx.compose.material.icons.filled.Search
 import androidx.compose.material.icons.filled.Security
 import androidx.compose.material.icons.filled.Terminal
 import androidx.compose.material3.Button
@@ -47,6 +51,7 @@ import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.OutlinedTextFieldDefaults
+import androidx.compose.material3.Surface
 import androidx.compose.material3.Switch
 import androidx.compose.material3.SwitchDefaults
 import androidx.compose.material3.Text
@@ -54,6 +59,7 @@ import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
@@ -61,6 +67,7 @@ import androidx.compose.ui.draw.alpha
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.platform.LocalClipboardManager
+import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.res.painterResource
 import androidx.compose.ui.res.stringResource
@@ -73,8 +80,8 @@ import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import com.example.R
 import com.example.data.ai.AiModelProfile
 import com.example.data.ai.AuditEngineMode
+import com.example.data.local.AuditFinding
 import com.example.data.local.AuditRunEntity
-import com.example.data.local.FindingEntity
 import com.example.data.local.PatchStatus
 import com.example.data.repository.InspectionTemplates
 import com.example.ui.components.EngineBadge
@@ -88,6 +95,7 @@ import com.example.ui.theme.JetBrainsMonoFamily
 import com.example.ui.viewmodel.AuditExecutionState
 import com.example.ui.viewmodel.BackendHealthState
 import com.example.ui.viewmodel.PatchForgeViewModel
+import com.example.ui.viewmodel.SearchGroundingState
 
 @Composable
 fun ScanWorkspaceScreen(
@@ -97,14 +105,17 @@ fun ScanWorkspaceScreen(
 ) {
     val editor by viewModel.scanEditor.collectAsStateWithLifecycle()
     val auditState by viewModel.auditState.collectAsStateWithLifecycle()
+    val searchState by viewModel.searchState.collectAsStateWithLifecycle()
     val runs by viewModel.auditRuns.collectAsStateWithLifecycle()
     val activeRun by viewModel.activeRun.collectAsStateWithLifecycle()
     val findings by viewModel.activeRunFindings.collectAsStateWithLifecycle()
     val healthState by viewModel.healthState.collectAsStateWithLifecycle()
     val clipboard = LocalClipboardManager.current
+    val context = LocalContext.current
     val forge = ForgeTheme.colors
 
     var editorExpanded by remember { mutableStateOf(true) }
+    var searchQuery by rememberSaveable { mutableStateOf("") }
 
     Box(
         modifier = modifier
@@ -151,7 +162,6 @@ fun ScanWorkspaceScreen(
                             modifier = Modifier.padding(top = 12.dp),
                             verticalArrangement = Arrangement.spacedBy(10.dp)
                         ) {
-                            // Quick-Load Test Fixtures
                             Text(
                                 text = stringResource(R.string.scan_quick_fixtures).uppercase(),
                                 style = MaterialTheme.typography.labelSmall,
@@ -190,7 +200,6 @@ fun ScanWorkspaceScreen(
                                 }
                             }
 
-                            // Engine Mode Selector
                             Row(
                                 modifier = Modifier.fillMaxWidth(),
                                 horizontalArrangement = Arrangement.spacedBy(8.dp)
@@ -232,7 +241,6 @@ fun ScanWorkspaceScreen(
                                 }
                             }
 
-                            // Target File Path Input
                             OutlinedTextField(
                                 value = editor.filePath,
                                 onValueChange = viewModel::updateFilePath,
@@ -258,7 +266,6 @@ fun ScanWorkspaceScreen(
                                     .testTag("scan_file_path_input")
                             )
 
-                            // Manifest / PR Diff Payload Input
                             OutlinedTextField(
                                 value = editor.payload,
                                 onValueChange = viewModel::updatePayload,
@@ -347,7 +354,6 @@ fun ScanWorkspaceScreen(
                                 )
                             }
 
-                            // Model Tier Row
                             Row(
                                 modifier = Modifier
                                     .fillMaxWidth()
@@ -378,7 +384,6 @@ fun ScanWorkspaceScreen(
 
                     Spacer(modifier = Modifier.height(12.dp))
 
-                    // Execute Primary Action Button
                     val isAnalyzing = auditState is AuditExecutionState.Analyzing
                     Button(
                         onClick = { viewModel.runDualEngineAudit() },
@@ -409,7 +414,6 @@ fun ScanWorkspaceScreen(
                         )
                     }
 
-                    // Active Inference Progress / Error Surface
                     when (val state = auditState) {
                         is AuditExecutionState.Analyzing -> {
                             Spacer(modifier = Modifier.height(10.dp))
@@ -420,7 +424,7 @@ fun ScanWorkspaceScreen(
                             )
                             Spacer(modifier = Modifier.height(6.dp))
                             Text(
-                                text = "Executing Gemini Structured Output (${state.modelLabel})… enforcing strict JSON schema.",
+                                text = "Executing Gemini Structured Output (${state.modelLabel})… enforcing AuditFinding JSON schema.",
                                 style = MaterialTheme.typography.labelSmall,
                                 color = forge.amber
                             )
@@ -455,7 +459,173 @@ fun ScanWorkspaceScreen(
                 }
             }
 
-            // Recent Runs Selector (when runs exist)
+            // Live Google Search Grounding (gemini-4-hydrogen + Tool.googleSearch())
+            item(key = "google_search_grounding") {
+                ForgePanel(elevated = false, accentBorder = forge.tacticalBlue.copy(alpha = 0.5f)) {
+                    SectionHeaderLabel(
+                        title = stringResource(R.string.scan_search_title),
+                        trailingText = "GEMINI-4-HYDROGEN · LIVE WEB"
+                    )
+                    Spacer(modifier = Modifier.height(8.dp))
+                    Row(
+                        modifier = Modifier.fillMaxWidth(),
+                        horizontalArrangement = Arrangement.spacedBy(8.dp),
+                        verticalAlignment = Alignment.CenterVertically
+                    ) {
+                        OutlinedTextField(
+                            value = searchQuery,
+                            onValueChange = { searchQuery = it },
+                            placeholder = {
+                                Text(
+                                    text = stringResource(R.string.scan_search_placeholder),
+                                    style = MaterialTheme.typography.bodySmall
+                                )
+                            },
+                            singleLine = true,
+                            shape = MaterialTheme.shapes.extraSmall,
+                            colors = OutlinedTextFieldDefaults.colors(
+                                focusedBorderColor = forge.tacticalBlue,
+                                unfocusedBorderColor = forge.borderHairline,
+                                focusedContainerColor = MaterialTheme.colorScheme.background,
+                                unfocusedContainerColor = MaterialTheme.colorScheme.background
+                            ),
+                            modifier = Modifier
+                                .weight(1f)
+                                .testTag("search_grounding_input")
+                        )
+
+                        Button(
+                            onClick = { viewModel.verifyWithGoogleSearch(searchQuery) },
+                            enabled = searchQuery.isNotBlank() && searchState !is SearchGroundingState.Searching,
+                            shape = MaterialTheme.shapes.extraSmall,
+                            colors = ButtonDefaults.buttonColors(
+                                containerColor = forge.tacticalBlue,
+                                contentColor = MaterialTheme.colorScheme.onSecondary
+                            ),
+                            contentPadding = PaddingValues(horizontal = 12.dp),
+                            modifier = Modifier
+                                .height(54.dp)
+                                .testTag("search_grounding_button")
+                        ) {
+                            Icon(
+                                imageVector = Icons.Default.Public,
+                                contentDescription = stringResource(R.string.scan_search_action),
+                                modifier = Modifier.size(18.dp)
+                            )
+                            Spacer(modifier = Modifier.width(6.dp))
+                            Text(
+                                text = stringResource(R.string.scan_search_action).uppercase(),
+                                style = MaterialTheme.typography.labelSmall.copy(fontWeight = FontWeight.Bold)
+                            )
+                        }
+                    }
+
+                    when (val state = searchState) {
+                        SearchGroundingState.Idle -> Unit
+                        SearchGroundingState.Searching -> {
+                            Spacer(modifier = Modifier.height(10.dp))
+                            LinearProgressIndicator(
+                                modifier = Modifier.fillMaxWidth(),
+                                color = forge.tacticalBlue,
+                                trackColor = forge.borderHairline
+                            )
+                            Spacer(modifier = Modifier.height(4.dp))
+                            Text(
+                                text = "Grounding against live CVE / registry advisories via Google Search…",
+                                style = MaterialTheme.typography.labelSmall,
+                                color = forge.tacticalBlue
+                            )
+                        }
+                        is SearchGroundingState.Error -> {
+                            Spacer(modifier = Modifier.height(10.dp))
+                            Text(
+                                text = state.message,
+                                style = MaterialTheme.typography.bodySmall,
+                                color = forge.criticalRed
+                            )
+                        }
+                        is SearchGroundingState.Success -> {
+                            Spacer(modifier = Modifier.height(10.dp))
+                            Box(
+                                modifier = Modifier
+                                    .fillMaxWidth()
+                                    .clip(MaterialTheme.shapes.extraSmall)
+                                    .background(MaterialTheme.colorScheme.background)
+                                    .border(1.dp, forge.borderHairline, MaterialTheme.shapes.extraSmall)
+                                    .padding(10.dp)
+                            ) {
+                                Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                                    Text(
+                                        text = state.result.answer,
+                                        style = MaterialTheme.typography.bodySmall,
+                                        color = MaterialTheme.colorScheme.onSurface
+                                    )
+                                    if (state.result.sources.isNotEmpty()) {
+                                        HorizontalDivider(color = forge.borderHairline)
+                                        Text(
+                                            text = "VERIFIED SOURCES (${state.result.sources.size})",
+                                            style = MaterialTheme.typography.labelSmall,
+                                            color = forge.tacticalBlue
+                                        )
+                                        state.result.sources.take(5).forEach { source ->
+                                            Surface(
+                                                onClick = {
+                                                    try {
+                                                        context.startActivity(
+                                                            Intent(Intent.ACTION_VIEW, Uri.parse(source.uri))
+                                                        )
+                                                    } catch (_: Exception) {
+                                                        clipboard.setText(AnnotatedString(source.uri))
+                                                        viewModel.notifyMessage("Copied source URL to clipboard.")
+                                                    }
+                                                },
+                                                shape = MaterialTheme.shapes.extraSmall,
+                                                color = MaterialTheme.colorScheme.surface,
+                                                border = BorderStroke(1.dp, forge.borderHairline),
+                                                modifier = Modifier.fillMaxWidth()
+                                            ) {
+                                                Row(
+                                                    modifier = Modifier.padding(horizontal = 10.dp, vertical = 8.dp),
+                                                    horizontalArrangement = Arrangement.SpaceBetween,
+                                                    verticalAlignment = Alignment.CenterVertically
+                                                ) {
+                                                    Column(modifier = Modifier.weight(1f)) {
+                                                        Text(
+                                                            text = source.title,
+                                                            style = MaterialTheme.typography.labelMedium,
+                                                            color = forge.tacticalBlue,
+                                                            maxLines = 1,
+                                                            overflow = TextOverflow.Ellipsis
+                                                        )
+                                                        Text(
+                                                            text = source.uri,
+                                                            style = MaterialTheme.typography.labelSmall.copy(
+                                                                fontFamily = JetBrainsMonoFamily
+                                                            ),
+                                                            color = forge.telemetryMuted,
+                                                            maxLines = 1,
+                                                            overflow = TextOverflow.Ellipsis
+                                                        )
+                                                    }
+                                                    Spacer(modifier = Modifier.width(8.dp))
+                                                    Icon(
+                                                        imageVector = Icons.Default.OpenInNew,
+                                                        contentDescription = "Open source link",
+                                                        tint = forge.tacticalBlue,
+                                                        modifier = Modifier.size(16.dp)
+                                                    )
+                                                }
+                                            }
+                                        }
+                                    }
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+
+            // Recent Runs Selector
             if (runs.isNotEmpty()) {
                 item(key = "run_history_strip") {
                     Row(
@@ -496,7 +666,6 @@ fun ScanWorkspaceScreen(
                     )
                 }
 
-                // Severity & Engine Filter Bar
                 item(key = "finding_filters") {
                     Row(
                         modifier = Modifier
@@ -549,10 +718,16 @@ fun ScanWorkspaceScreen(
                     }
                 }
             } else {
-                items(findings, key = { it.findingId }) { finding ->
+                items(findings, key = { it.id }) { finding ->
                     StructuredFindingCard(
                         finding = finding,
-                        onApprove = { viewModel.approveFinding(finding.findingId) },
+                        onApprove = { viewModel.approveFinding(finding.id) },
+                        onVerifyCve = {
+                            val target = finding.packageOrSymbol.ifBlank { finding.filePath }
+                            val query = "Latest CVE security advisory & safe patched version for $target (${finding.threatCategory})"
+                            searchQuery = query
+                            viewModel.verifyWithGoogleSearch(query)
+                        },
                         onCopyPatch = {
                             val diff = viewModel.buildPatchForFinding(finding)
                             clipboard.setText(AnnotatedString(diff))
@@ -577,7 +752,7 @@ private fun ForgeHeaderBanner(
         is BackendHealthState.Online -> "FASTAPI ONLINE" to forge.verifiedGreen
         is BackendHealthState.Probing -> "PROBING…" to forge.amber
         is BackendHealthState.Offline -> "LOCAL GEMINI" to forge.tacticalBlue
-        BackendHealthState.Unchecked -> "GEMINI DIRECT" to forge.amber
+        BackendHealthState.Unchecked -> "GEMINI + CLOUD" to forge.amber
     }
 
     Box(
@@ -739,8 +914,9 @@ private fun TelemetryStat(label: String, value: String) {
 
 @Composable
 private fun StructuredFindingCard(
-    finding: FindingEntity,
+    finding: AuditFinding,
     onApprove: () -> Unit,
+    onVerifyCve: () -> Unit,
     onCopyPatch: () -> Unit,
     onInspectPatch: () -> Unit
 ) {
@@ -753,7 +929,6 @@ private fun StructuredFindingCard(
     }
 
     ForgePanel(accentBorder = accentColor.copy(alpha = 0.55f)) {
-        // Strict Schema Header: Severity + Threat Category + Engine
         Row(
             modifier = Modifier.fillMaxWidth(),
             horizontalArrangement = Arrangement.SpaceBetween,
@@ -775,7 +950,6 @@ private fun StructuredFindingCard(
 
         Spacer(modifier = Modifier.height(8.dp))
 
-        // Strict Schema Location: file_path & line_bounds
         Row(
             modifier = Modifier
                 .fillMaxWidth()
@@ -806,14 +980,12 @@ private fun StructuredFindingCard(
 
         Spacer(modifier = Modifier.height(8.dp))
 
-        // Strict Schema Description
         Text(
             text = finding.description,
             style = MaterialTheme.typography.bodyMedium,
             color = MaterialTheme.colorScheme.onSurface
         )
 
-        // Strict Schema replacement_snippet preview
         if (finding.replacementSnippet.isNotBlank()) {
             Spacer(modifier = Modifier.height(8.dp))
             Text(
@@ -843,7 +1015,6 @@ private fun StructuredFindingCard(
 
         Spacer(modifier = Modifier.height(10.dp))
 
-        // Action Strip
         Row(
             modifier = Modifier.fillMaxWidth(),
             horizontalArrangement = Arrangement.spacedBy(8.dp),
@@ -855,7 +1026,7 @@ private fun StructuredFindingCard(
                 enabled = !isApproved,
                 shape = MaterialTheme.shapes.extraSmall,
                 border = BorderStroke(1.dp, if (isApproved) forge.verifiedGreen else forge.amber),
-                contentPadding = PaddingValues(horizontal = 10.dp, vertical = 6.dp),
+                contentPadding = PaddingValues(horizontal = 8.dp, vertical = 6.dp),
                 modifier = Modifier.weight(1f)
             ) {
                 Icon(
@@ -864,11 +1035,26 @@ private fun StructuredFindingCard(
                     tint = if (isApproved) forge.verifiedGreen else forge.amber,
                     modifier = Modifier.size(15.dp)
                 )
-                Spacer(modifier = Modifier.width(6.dp))
+                Spacer(modifier = Modifier.width(5.dp))
                 Text(
                     text = if (isApproved) finding.patchStatus else "APPROVE",
                     style = MaterialTheme.typography.labelSmall,
-                    color = if (isApproved) forge.verifiedGreen else forge.amber
+                    color = if (isApproved) forge.verifiedGreen else forge.amber,
+                    maxLines = 1
+                )
+            }
+
+            OutlinedButton(
+                onClick = onVerifyCve,
+                shape = MaterialTheme.shapes.extraSmall,
+                border = BorderStroke(1.dp, forge.tacticalBlue),
+                contentPadding = PaddingValues(horizontal = 8.dp, vertical = 6.dp)
+            ) {
+                Icon(
+                    imageVector = Icons.Default.Search,
+                    contentDescription = "Verify CVE with Google Search",
+                    tint = forge.tacticalBlue,
+                    modifier = Modifier.size(15.dp)
                 )
             }
 
@@ -876,31 +1062,25 @@ private fun StructuredFindingCard(
                 onClick = onCopyPatch,
                 shape = MaterialTheme.shapes.extraSmall,
                 border = BorderStroke(1.dp, forge.borderStrong),
-                contentPadding = PaddingValues(horizontal = 10.dp, vertical = 6.dp),
-                modifier = Modifier.weight(1f)
+                contentPadding = PaddingValues(horizontal = 8.dp, vertical = 6.dp)
             ) {
                 Icon(
                     imageVector = Icons.Default.ContentCopy,
                     contentDescription = "Copy Git patch",
                     modifier = Modifier.size(15.dp)
                 )
-                Spacer(modifier = Modifier.width(6.dp))
-                Text(
-                    text = "COPY DIFF",
-                    style = MaterialTheme.typography.labelSmall
-                )
             }
 
             OutlinedButton(
                 onClick = onInspectPatch,
                 shape = MaterialTheme.shapes.extraSmall,
-                border = BorderStroke(1.dp, forge.tacticalBlue),
-                contentPadding = PaddingValues(horizontal = 10.dp, vertical = 6.dp)
+                border = BorderStroke(1.dp, forge.borderStrong),
+                contentPadding = PaddingValues(horizontal = 8.dp, vertical = 6.dp)
             ) {
                 Icon(
                     imageVector = Icons.Default.Build,
                     contentDescription = "Open Patch Workbench",
-                    tint = forge.tacticalBlue,
+                    tint = forge.amber,
                     modifier = Modifier.size(15.dp)
                 )
             }

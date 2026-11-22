@@ -206,7 +206,7 @@ class FirestoreSyncRepository(
 
             for (finding in findings) {
                 val fRef = db.collection("users").document(uid)
-                    .collection("audit_findings").document(finding.findingId)
+                    .collection("audit_findings").document(finding.id)
                 currentPath = fRef.path
                 val safeCategory = if (finding.threatCategory in ALLOWED_CATEGORIES) finding.threatCategory else "SEMANTIC_LOGIC"
                 val safeSeverity = if (finding.severity in ALLOWED_SEVERITIES) finding.severity else "MEDIUM"

@@ -13,10 +13,12 @@ import androidx.compose.ui.unit.dp
 
 @Immutable
 data class ForgeExtendedColors(
-    val borderHairline: Color = TitaniumHairline,
-    val borderStrong: Color = TitaniumEdge,
-    val amber: Color = ForgeAmber,
-    val amberContainer: Color = ForgeAmberContainer,
+    val titaniumAccent: Color = BrushedTitaniumAccent,
+    val borderHairline: Color = BrushedTitaniumHairline,
+    val borderStrong: Color = BrushedTitaniumBorder,
+    val recessedWell: Color = ForgedSteelWell,
+    val amber: Color = TacticalAmber,
+    val amberContainer: Color = TacticalAmberContainer,
     val tacticalBlue: Color = TacticalBlue,
     val tacticalBlueContainer: Color = TacticalBlueContainer,
     val criticalRed: Color = IndustrialCrimson,
@@ -34,40 +36,40 @@ data class ForgeExtendedColors(
 
 val LocalForgeColors = staticCompositionLocalOf { ForgeExtendedColors() }
 
-private val ForgeDarkColorScheme = darkColorScheme(
-    primary = ForgeAmber,
-    onPrimary = OnForgeAmber,
-    primaryContainer = ForgeAmberContainer,
-    onPrimaryContainer = ForgeAmberBright,
+private val PatchForgeDarkColorScheme = darkColorScheme(
+    primary = TacticalAmber,
+    onPrimary = OnTacticalAmber,
+    primaryContainer = TacticalAmberContainer,
+    onPrimaryContainer = TacticalAmberBright,
     secondary = TacticalBlue,
     onSecondary = OnTacticalBlue,
     secondaryContainer = TacticalBlueContainer,
     onSecondaryContainer = TacticalBlueBright,
-    tertiary = TacticalSage,
-    onTertiary = SteelVoid,
+    tertiary = BrushedTitaniumAccent,
+    onTertiary = ForgedSteelWell,
     tertiaryContainer = TacticalSageContainer,
     onTertiaryContainer = DiffAddedInk,
-    background = SteelVoid,
+    background = ForgedSteelBackground,
     onBackground = AluminumInk,
-    surface = SteelPlate,
+    surface = ForgedSteelPlate,
     onSurface = AluminumInk,
-    surfaceVariant = SteelMachined,
+    surfaceVariant = ForgedSteelMachined,
     onSurfaceVariant = SlateInk,
-    surfaceContainerLowest = SteelVoid,
-    surfaceContainerLow = SteelPlate,
-    surfaceContainer = SteelMachined,
-    surfaceContainerHigh = SteelElevated,
-    surfaceContainerHighest = SteelActiveContainer,
-    outline = TitaniumEdge,
-    outlineVariant = TitaniumHairline,
+    surfaceContainerLowest = ForgedSteelWell,
+    surfaceContainerLow = ForgedSteelBackground,
+    surfaceContainer = ForgedSteelPlate,
+    surfaceContainerHigh = ForgedSteelElevated,
+    surfaceContainerHighest = ForgedSteelContainerHighest,
+    outline = BrushedTitaniumAccent,
+    outlineVariant = BrushedTitaniumHairline,
     error = IndustrialCrimson,
     onError = OnIndustrialCrimson,
     errorContainer = IndustrialCrimsonContainer,
     onErrorContainer = DiffRemovedInk
 )
 
-// Sharp utilitarian geometry: chamfered/machined edges rather than soft rounded bubbles.
-private val ForgeShapes = Shapes(
+// Sharp utilitarian geometry: chamfered/machined industrial edges.
+private val PatchForgeShapes = Shapes(
     extraSmall = RoundedCornerShape(2.dp),
     small = RoundedCornerShape(4.dp),
     medium = RoundedCornerShape(6.dp),
@@ -82,9 +84,9 @@ fun PatchForgeTheme(
     val extendedColors = ForgeExtendedColors()
     CompositionLocalProvider(LocalForgeColors provides extendedColors) {
         MaterialTheme(
-            colorScheme = ForgeDarkColorScheme,
+            colorScheme = PatchForgeDarkColorScheme,
             typography = PatchForgeTypography,
-            shapes = ForgeShapes,
+            shapes = PatchForgeShapes,
             content = content
         )
     }

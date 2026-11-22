@@ -6,11 +6,9 @@ import androidx.activity.ComponentActivity
 import androidx.activity.SystemBarStyle
 import androidx.activity.compose.setContent
 import androidx.activity.enableEdgeToEdge
-import androidx.lifecycle.viewmodel.compose.viewModel
 import com.example.core.configureAppCheck
-import com.example.ui.screens.PatchForgeApp
+import com.example.ui.screens.AppRoot
 import com.example.ui.theme.PatchForgeTheme
-import com.example.ui.viewmodel.PatchForgeViewModel
 
 class MainActivity : ComponentActivity() {
     override fun onCreate(savedInstanceState: Bundle?) {
@@ -25,13 +23,10 @@ class MainActivity : ComponentActivity() {
             navigationBarStyle = SystemBarStyle.dark(Color.TRANSPARENT)
         )
 
-        // STEP 3: Mount Compose UI.
+        // STEP 3: Mount Auth-Gated Compose UI.
         setContent {
             PatchForgeTheme {
-                val viewModel: PatchForgeViewModel = viewModel(
-                    factory = PatchForgeViewModel.Factory(applicationContext)
-                )
-                PatchForgeApp(viewModel = viewModel)
+                AppRoot()
             }
         }
     }

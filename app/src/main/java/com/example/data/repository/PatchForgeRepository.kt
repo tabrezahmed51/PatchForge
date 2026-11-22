@@ -1,21 +1,29 @@
 package com.example.data.repository
 
+import android.graphics.Bitmap
 import android.util.Log
 import com.example.data.ai.AgentPersona
 import com.example.data.ai.AiModelProfile
 import com.example.data.ai.AiReviewProvider
 import com.example.data.ai.AuditEngineMode
 import com.example.data.ai.ChatTurn
+import com.example.data.ai.GroundedSearchResult
+import com.example.data.ai.ThirdPartyMultimodalClient
+import com.example.data.local.AiApiIntegrationConfig
+import com.example.data.local.AuditFinding
 import com.example.data.local.AuditRunEntity
 import com.example.data.local.BackendConfig
 import com.example.data.local.BackendPreferences
 import com.example.data.local.ChatMessageEntity
-import com.example.data.local.FindingEntity
 import com.example.data.local.PatchForgeDao
 import com.example.data.local.PatchStatus
 import com.example.data.local.PendingSyncActionEntity
+import com.example.data.local.ThirdPartyAiVendor
 import com.example.data.remote.AnalyzeRequest
+import com.example.data.remote.CloudAuditFinding
+import com.example.data.remote.CloudAuditRun
 import com.example.data.remote.FastApiClientFactory
+import com.example.data.remote.FirestoreSyncRepository
 import com.example.data.remote.HealthResponse
 import com.example.data.remote.PatchApplyRequest
 import com.example.data.remote.WorkerEvent
@@ -38,21 +46,30 @@ class PatchForgeRepository(
     private val dao: PatchForgeDao,
     private val preferences: BackendPreferences,
     private val aiProvider: AiReviewProvider,
+    private val thirdPartyClient: ThirdPartyMultimodalClient,
+    private val firestoreSync: FirestoreSyncRepository,
     private val wsClient: WorkerWebSocketClient
 ) {
     val auditRuns: Flow<List<AuditRunEntity>> = dao.observeAuditRuns()
-    val allFindings: Flow<List<FindingEntity>> = dao.observeAllFindings()
+    val allFindings: Flow<List<AuditFinding>> = dao.observeAllFindings()
     val pendingSyncActions: Flow<List<PendingSyncActionEntity>> = dao.observePendingSyncActions()
     val chatMessages: Flow<List<ChatMessageEntity>> = dao.observeChatMessages()
     val backendConfig: Flow<BackendConfig> = preferences.configFlow
+    val aiIntegrationConfig: Flow<AiApiIntegrationConfig> = preferences.aiIntegrationFlow
     val wsConnectionState: Flow<WsConnectionState> = wsClient.connectionState
     val workerEvents: Flow<List<WorkerEvent>> = wsClient.events
 
     val activeProviderName: String
         get() = aiProvider.providerName
 
-    fun observeFindingsForRun(runId: String): Flow<List<FindingEntity>> =
-        dao.observeFindingsForRun(runId)
+    fun observeCloudAuditRuns(userId: String): Flow<List<CloudAuditRun>> =
+        firestoreSync.observeCloudAuditRuns(userId)
+
+    fun observeCloudFindings(userId: String): Flow<List<CloudAuditFinding>> =
+        firestoreSync.observeCloudFindings(userId)
+
+    suspend fun ensureCloudUserProfile(displayName: String, email: String?): Result<Unit> =
+        firestoreSync.ensureUserProfile(displayName, email)
 
     suspend fun saveBackendConfig(
         baseUrl: String,
@@ -68,6 +85,14 @@ class PatchForgeRepository(
             orchestratorMode = orchestratorMode,
             autoRetryOffline = autoRetryOffline
         )
+    }
+
+    suspend fun saveAiIntegrationConfig(config: AiApiIntegrationConfig) {
+        preferences.saveAiIntegrationConfig(config)
+    }
+
+    suspend fun clearAllThirdPartyKeys() {
+        preferences.clearAllThirdPartyKeys()
     }
 
     suspend fun probeFastApiHealth(baseUrl: String, bearerToken: String): Result<HealthResponse> {
@@ -88,7 +113,7 @@ class PatchForgeRepository(
             wsClient.recordLocalTelemetry(
                 worker = "rest-client",
                 eventType = "OFFLINE",
-                message = "FastAPI unreachable (${e.localizedMessage ?: "connection refused"}). Local Gemini engine remains active."
+                message = "FastAPI unreachable (${e.localizedMessage ?: "connection refused"}). Local Gemini & Firestore remain active."
             )
             Result.failure(e)
         }
@@ -102,10 +127,6 @@ class PatchForgeRepository(
         wsClient.disconnect()
     }
 
-    /**
-     * Executes dual-engine audit via Gemini Structured Outputs (Firebase AI Logic), persists
-     * locally in Room, and optionally mirrors the run to FastAPI when FASTAPI_HYBRID is active.
-     */
     suspend fun executeDualEngineAudit(
         filePath: String,
         payload: String,
@@ -180,15 +201,15 @@ class PatchForgeRepository(
         )
 
         val findingEntities = structured.findings.mapIndexed { idx, f ->
-            FindingEntity(
-                findingId = "$runId-F${idx + 1}",
-                runId = runId,
+            AuditFinding(
+                id = "$runId-F${idx + 1}",
                 filePath = f.filePath,
                 lineBounds = f.lineBounds,
                 threatCategory = f.threatCategory,
                 severity = f.severity,
                 description = f.description,
                 replacementSnippet = f.replacementSnippet,
+                runId = runId,
                 originalSnippet = f.originalSnippet,
                 engineType = f.engineType,
                 packageOrSymbol = f.packageOrSymbol,
@@ -202,25 +223,28 @@ class PatchForgeRepository(
             dao.insertFindings(findingEntities)
         }
 
+        // Sync run & findings to Cloud Firestore under authenticated user scope
+        val cloudSyncResult = firestoreSync.syncAuditRunAndFindings(runEntity, findingEntities)
+        if (cloudSyncResult.isSuccess && syncStatus == "LOCAL_ENGINE") {
+            dao.updateAuditRunSync(runId, "CLOUD_SYNCED", remoteJobId)
+        }
+
         wsClient.recordLocalTelemetry(
             worker = "gemini-orchestrator",
             eventType = "AUDIT_COMPLETE",
             jobId = runId,
-            message = "Structured audit complete: ${findingEntities.size} findings, risk=${structured.riskScore}/100"
+            message = "Audit complete: ${findingEntities.size} findings, risk=${structured.riskScore}/100, cloud=${cloudSyncResult.isSuccess}"
         )
         return runEntity
     }
 
     suspend fun updateFindingPatchStatus(findingId: String, status: String) {
         dao.updateFindingPatchStatus(findingId, status)
+        firestoreSync.updateCloudFindingStatus(findingId, status)
     }
 
-    /**
-     * Dispatches unified Git patch to FastAPI backend `POST /api/v1/patches/apply`.
-     * If backend is offline/unreachable, cleanly queues the mutation in Room for retry.
-     */
     suspend fun dispatchPatchesToBranch(
-        findings: List<FindingEntity>,
+        findings: List<AuditFinding>,
         targetBranch: String,
         commitMessage: String
     ): BranchDispatchResult {
@@ -230,7 +254,7 @@ class PatchForgeRepository(
             targetBranch = targetBranch.trim().ifBlank { config.defaultTargetBranch },
             commitMessage = commitMessage.trim().ifBlank { "chore(patchforge): apply self-healing remediation patches" },
             unifiedDiff = unifiedDiff,
-            findingIds = findings.map { it.findingId }
+            findingIds = findings.map { it.id }
         )
         val payloadJson = FastApiClientFactory.moshi.adapter(PatchApplyRequest::class.java).toJson(request)
         val service = FastApiClientFactory.createService(config.baseUrl, config.bearerToken)
@@ -238,7 +262,10 @@ class PatchForgeRepository(
         if (service != null) {
             try {
                 val response = service.applyPatch(request)
-                findings.forEach { dao.updateFindingPatchStatus(it.findingId, PatchStatus.APPLIED) }
+                findings.forEach {
+                    dao.updateFindingPatchStatus(it.id, PatchStatus.APPLIED)
+                    firestoreSync.updateCloudFindingStatus(it.id, PatchStatus.APPLIED)
+                }
                 wsClient.recordLocalTelemetry(
                     worker = "git-healer",
                     eventType = "PATCH_APPLIED",
@@ -253,7 +280,10 @@ class PatchForgeRepository(
                 throw e
             } catch (e: Exception) {
                 Log.w(TAG, "FastAPI patch apply unreachable; queuing offline", e)
-                findings.forEach { dao.updateFindingPatchStatus(it.findingId, PatchStatus.QUEUED_SYNC) }
+                findings.forEach {
+                    dao.updateFindingPatchStatus(it.id, PatchStatus.QUEUED_SYNC)
+                    firestoreSync.updateCloudFindingStatus(it.id, PatchStatus.QUEUED_SYNC)
+                }
                 enqueueOfflineAction(
                     actionType = "PATCH_APPLY",
                     endpoint = "${config.baseUrl}/api/v1/patches/apply",
@@ -268,7 +298,10 @@ class PatchForgeRepository(
                 )
             }
         } else {
-            findings.forEach { dao.updateFindingPatchStatus(it.findingId, PatchStatus.QUEUED_SYNC) }
+            findings.forEach {
+                dao.updateFindingPatchStatus(it.id, PatchStatus.QUEUED_SYNC)
+                firestoreSync.updateCloudFindingStatus(it.id, PatchStatus.QUEUED_SYNC)
+            }
             enqueueOfflineAction(
                 actionType = "PATCH_APPLY",
                 endpoint = "${config.baseUrl}/api/v1/patches/apply",
@@ -339,6 +372,7 @@ class PatchForgeRepository(
                         service.applyPatch(req)
                         req.findingIds.forEach { fid ->
                             dao.updateFindingPatchStatus(fid, PatchStatus.APPLIED)
+                            firestoreSync.updateCloudFindingStatus(fid, PatchStatus.APPLIED)
                         }
                     }
                     "REMOTE_ANALYZE" -> {
@@ -374,7 +408,49 @@ class PatchForgeRepository(
 
     suspend fun deleteSyncAction(actionId: String) = dao.deleteSyncAction(actionId)
 
-    // Multi-turn Gemini Chat Persistence & Streaming
+    // Google Search Grounding (gemini-4-hydrogen + Google Search tool)
+    suspend fun runSearchGroundedVerification(query: String): GroundedSearchResult {
+        wsClient.recordLocalTelemetry(
+            worker = "search-grounding",
+            eventType = "VERIFY_CVE",
+            message = "Querying Google Search via gemini-4-hydrogen: $query"
+        )
+        return aiProvider.runSearchGroundedVerification(query)
+    }
+
+    // Audio Transcription (gemini-3.5-transcribe)
+    suspend fun transcribeVoiceAudio(audioBytes: ByteArray): String {
+        wsClient.recordLocalTelemetry(
+            worker = "audio-transcribe",
+            eventType = "TRANSCRIBE",
+            message = "Transcribing ${audioBytes.size / 1024}KB voice capture via gemini-3.5-transcribe"
+        )
+        return aiProvider.transcribeAudio(audioBytes, "audio/mp4")
+    }
+
+    // Multimodal Studio: Routes via Native Gemini OR User-Configured 3rd-Party AI API Keys
+    suspend fun runMultimodalInference(
+        prompt: String,
+        image: Bitmap?,
+        modelProfile: AiModelProfile
+    ): Pair<String, String> {
+        val aiCfg = preferences.aiIntegrationFlow.first()
+        return if (aiCfg.activeVendor == ThirdPartyAiVendor.NATIVE_GEMINI) {
+            val out = aiProvider.runMultimodalPrompt(prompt, image, modelProfile)
+            out to "${aiProvider.providerName} · ${modelProfile.modelId}"
+        } else {
+            val out = thirdPartyClient.runMultimodalInference(aiCfg, prompt, image)
+            val modelLabel = when (aiCfg.activeVendor) {
+                ThirdPartyAiVendor.OPENAI -> aiCfg.openAiModel
+                ThirdPartyAiVendor.ANTHROPIC -> aiCfg.anthropicModel
+                ThirdPartyAiVendor.OPENROUTER -> aiCfg.customModel
+                ThirdPartyAiVendor.NATIVE_GEMINI -> modelProfile.modelId
+            }
+            out to "${aiCfg.activeVendor.label} · $modelLabel"
+        }
+    }
+
+    // Multi-turn Gemini Chat
     suspend fun appendUserChatMessage(
         content: String,
         modelProfile: AiModelProfile,
@@ -409,9 +485,8 @@ class PatchForgeRepository(
         )
     }
 
-    suspend fun getChatHistoryTurns(): List<ChatTurn> {
-        return dao.getChatMessagesSnapshot().map { ChatTurn(role = it.role, content = it.content) }
-    }
+    suspend fun getChatHistoryTurns(): List<ChatTurn> =
+        dao.getChatMessagesSnapshot().map { ChatTurn(role = it.role, content = it.content) }
 
     fun streamAgentChat(
         history: List<ChatTurn>,

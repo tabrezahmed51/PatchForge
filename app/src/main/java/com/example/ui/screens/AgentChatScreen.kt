@@ -1,5 +1,9 @@
 package com.example.ui.screens
 
+import android.Manifest
+import android.content.pm.PackageManager
+import androidx.activity.compose.rememberLauncherForActivityResult
+import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
@@ -27,8 +31,10 @@ import androidx.compose.material.icons.filled.AttachFile
 import androidx.compose.material.icons.filled.ContentCopy
 import androidx.compose.material.icons.filled.DeleteOutline
 import androidx.compose.material.icons.filled.ErrorOutline
+import androidx.compose.material.icons.filled.Mic
 import androidx.compose.material.icons.filled.Psychology
 import androidx.compose.material.icons.filled.SmartToy
+import androidx.compose.material.icons.filled.Stop
 import androidx.compose.material3.FilterChip
 import androidx.compose.material3.FilterChipDefaults
 import androidx.compose.material3.HorizontalDivider
@@ -41,22 +47,27 @@ import androidx.compose.material3.OutlinedTextFieldDefaults
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.remember
 import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.platform.LocalClipboardManager
+import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.text.AnnotatedString
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
+import androidx.core.content.ContextCompat
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import com.example.R
+import com.example.core.AudioRecorderHelper
 import com.example.data.ai.AgentPersona
 import com.example.data.ai.AiModelProfile
 import com.example.data.local.ChatMessageEntity
@@ -75,10 +86,41 @@ fun AgentChatScreen(
     val agentState by viewModel.agentState.collectAsStateWithLifecycle()
     val activeRun by viewModel.activeRun.collectAsStateWithLifecycle()
     val clipboard = LocalClipboardManager.current
+    val context = LocalContext.current
     val forge = ForgeTheme.colors
 
     var draft by rememberSaveable { mutableStateOf("") }
+    var isRecording by remember { mutableStateOf(false) }
     val listState = rememberLazyListState()
+    val audioRecorder = remember(context) { AudioRecorderHelper(context) }
+
+    DisposableEffect(audioRecorder) {
+        onDispose {
+            audioRecorder.stopAndRelease()
+        }
+    }
+
+    fun startVoiceCapture() {
+        audioRecorder.startRecording()
+            .onSuccess {
+                isRecording = true
+                viewModel.notifyMessage("Recording voice note… tap Stop to transcribe via gemini-3.5-transcribe.")
+            }
+            .onFailure { err ->
+                isRecording = false
+                viewModel.notifyMessage("Microphone unavailable: ${err.localizedMessage ?: "error"}")
+            }
+    }
+
+    val micPermissionLauncher = rememberLauncherForActivityResult(
+        contract = ActivityResultContracts.RequestPermission()
+    ) { granted ->
+        if (granted) {
+            startVoiceCapture()
+        } else {
+            viewModel.notifyMessage("Microphone permission denied. Voice transcription requires RECORD_AUDIO.")
+        }
+    }
 
     val isBusy = agentState.streamState is ChatStreamState.Thinking ||
         agentState.streamState is ChatStreamState.Streaming
@@ -168,7 +210,7 @@ fun AgentChatScreen(
 
                     Spacer(modifier = Modifier.height(4.dp))
 
-                    // Model Tier Selector (gemini-4-carbon HIGH THINK, gemini-4-neon, gemini-4-hydrogen, gemini-3.1-flash-lite)
+                    // Model Tier Selector
                     Row(
                         modifier = Modifier
                             .fillMaxWidth()
@@ -270,7 +312,6 @@ fun AgentChatScreen(
                                 }
                             }
                             Spacer(modifier = Modifier.height(10.dp))
-                            // Starter Engineering Prompts
                             val starters = listOf(
                                 "Explain the blast radius of a malicious postinstall script in package.json.",
                                 "How do I safely eliminate shell=True command injection in Python git patch runners?",
@@ -310,7 +351,6 @@ fun AgentChatScreen(
                     )
                 }
 
-                // Live Streaming / High Thinking Indicator
                 when (val stream = agentState.streamState) {
                     is ChatStreamState.Thinking -> {
                         item(key = "streaming_thinking") {
@@ -391,7 +431,35 @@ fun AgentChatScreen(
                 }
             }
 
-            // Bottom Operator Command Input Bar
+            // Live Audio Recording / Transcription Status Banner
+            if (isRecording || agentState.isTranscribingAudio) {
+                Column(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .background(if (isRecording) forge.criticalRedContainer else forge.tacticalBlueContainer)
+                        .padding(horizontal = 14.dp, vertical = 6.dp)
+                ) {
+                    Text(
+                        text = if (isRecording) {
+                            "REC ● CAPTURING VOICE AUDIO — TAP STOP TO TRANSCRIBE"
+                        } else {
+                            "TRANSCRIBING AUDIO VIA GEMINI-3.5-TRANSCRIBE…"
+                        },
+                        style = MaterialTheme.typography.labelSmall,
+                        color = if (isRecording) forge.criticalRed else forge.tacticalBlue
+                    )
+                    if (agentState.isTranscribingAudio) {
+                        Spacer(modifier = Modifier.height(4.dp))
+                        LinearProgressIndicator(
+                            modifier = Modifier.fillMaxWidth(),
+                            color = forge.tacticalBlue,
+                            trackColor = forge.borderHairline
+                        )
+                    }
+                }
+            }
+
+            // Bottom Operator Command Input Bar with Voice Transcription Mic + Send
             HorizontalDivider(color = forge.borderHairline)
             Row(
                 modifier = Modifier
@@ -401,6 +469,56 @@ fun AgentChatScreen(
                 verticalAlignment = Alignment.CenterVertically,
                 horizontalArrangement = Arrangement.spacedBy(8.dp)
             ) {
+                Surface(
+                    onClick = {
+                        if (isRecording) {
+                            isRecording = false
+                            audioRecorder.stopAndReadBytes()
+                                .onSuccess { bytes ->
+                                    viewModel.transcribeVoiceClip(bytes) { transcript ->
+                                        draft = if (draft.isBlank()) transcript else "$draft $transcript"
+                                    }
+                                }
+                                .onFailure { err ->
+                                    viewModel.notifyMessage(err.localizedMessage ?: "Audio capture failed.")
+                                }
+                        } else {
+                            val hasPermission = ContextCompat.checkSelfPermission(
+                                context,
+                                Manifest.permission.RECORD_AUDIO
+                            ) == PackageManager.PERMISSION_GRANTED
+                            if (hasPermission) {
+                                startVoiceCapture()
+                            } else {
+                                micPermissionLauncher.launch(Manifest.permission.RECORD_AUDIO)
+                            }
+                        }
+                    },
+                    enabled = !agentState.isTranscribingAudio,
+                    shape = MaterialTheme.shapes.extraSmall,
+                    color = if (isRecording) forge.criticalRed else MaterialTheme.colorScheme.background,
+                    border = BorderStroke(
+                        1.dp,
+                        if (isRecording) forge.criticalRed else forge.tacticalBlue
+                    ),
+                    modifier = Modifier
+                        .size(48.dp)
+                        .testTag("chat_voice_record_button")
+                ) {
+                    Box(contentAlignment = Alignment.Center) {
+                        Icon(
+                            imageVector = if (isRecording) Icons.Default.Stop else Icons.Default.Mic,
+                            contentDescription = if (isRecording) {
+                                stringResource(R.string.agent_voice_stop_cd)
+                            } else {
+                                stringResource(R.string.agent_voice_record_cd)
+                            },
+                            tint = if (isRecording) MaterialTheme.colorScheme.onError else forge.tacticalBlue,
+                            modifier = Modifier.size(20.dp)
+                        )
+                    }
+                }
+
                 OutlinedTextField(
                     value = draft,
                     onValueChange = { draft = it },

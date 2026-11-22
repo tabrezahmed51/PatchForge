@@ -28,7 +28,7 @@ interface PatchForgeDao {
     @Insert(onConflict = OnConflictStrategy.REPLACE)
     suspend fun insertFindings(findings: List<AuditFinding>)
 
-    @Query("UPDATE audit_findings SET patch_status = :status WHERE finding_id = :findingId")
+    @Query("UPDATE audit_findings SET patch_status = :status WHERE id = :findingId")
     suspend fun updateFindingPatchStatus(findingId: String, status: String)
 
     // Offline Sync & Retry Queue

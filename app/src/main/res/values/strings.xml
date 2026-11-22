@@ -5,7 +5,7 @@
     <string name="nav_scan">Scan</string>
     <string name="nav_patches">Patches</string>
     <string name="nav_agent">Agent</string>
-    <string name="nav_control">Control</string>
+    <string name="nav_settings">Settings</string>
 
     <!-- Scan Workspace -->
     <string name="scan_header_subtitle">DUAL-ENGINE SUPPLY-CHAIN &amp; SEMANTIC PR AUDITOR</string>
@@ -20,6 +20,9 @@
     <string name="scan_quick_fixtures">Quick-Load Test Targets</string>
     <string name="scan_empty_findings_title">No Active Audit Findings</string>
     <string name="scan_empty_findings_body">Load a dependency manifest or paste a PR diff above, then execute a live Gemini structured audit.</string>
+    <string name="scan_search_title">CVE &amp; Package Search Grounding</string>
+    <string name="scan_search_placeholder">Verify package, CVE ID, or advisory via Google Search…</string>
+    <string name="scan_search_action">Verify Live</string>
 
     <!-- Patch Workbench -->
     <string name="patches_title">Self-Healing Patch Loop</string>
@@ -37,14 +40,25 @@
     <!-- Agent Chat -->
     <string name="agent_title">Gemini Triage Agent</string>
     <string name="agent_subtitle">MULTI-TURN SECURITY &amp; AST REASONING COPILOT</string>
-    <string name="agent_input_placeholder">Ask about CVEs, AST complexity, or patch safety…</string>
+    <string name="agent_input_placeholder">Ask about CVEs, AST complexity, or dictate by voice…</string>
     <string name="agent_send_cd">Send message</string>
+    <string name="agent_voice_record_cd">Record voice prompt</string>
+    <string name="agent_voice_stop_cd">Stop recording and transcribe</string>
     <string name="agent_clear_cd">Clear conversation</string>
     <string name="agent_attach_context">Attach Audit Context</string>
     <string name="agent_empty_title">Triage Session Ready</string>
-    <string name="agent_empty_body">Select an engineering role and Gemini model tier above. Enable High Thinking (gemini-4-carbon) for deep supply-chain or concurrency analysis.</string>
+    <string name="agent_empty_body">Select an engineering role and Gemini model tier above. Enable High Thinking (gemini-4-carbon) or tap the mic for voice transcription (gemini-3.5-transcribe).</string>
 
-    <!-- Control Plane -->
+    <!-- Settings & Control Plane -->
+    <string name="settings_title">PatchForge Settings</string>
+    <string name="settings_subtitle">AI API MULTIMODAL INTEGRATION, CLOUD SYNC &amp; FASTAPI CONTROL</string>
+    <string name="settings_tab_ai">AI Multimodal API</string>
+    <string name="settings_tab_backend">Backend &amp; Sync</string>
+    <string name="settings_save_ai">Save AI API Config</string>
+    <string name="settings_clear_keys">Clear 3rd-Party Keys</string>
+    <string name="settings_pick_image">Attach Screenshot / Diagram</string>
+    <string name="settings_run_multimodal">Run Multimodal Analysis</string>
+    <string name="settings_sign_out">Sign Out</string>
     <string name="control_title">FastAPI Control Plane</string>
     <string name="control_subtitle">REST / WEBSOCKET WORKERS &amp; OFFLINE RETRY QUEUE</string>
     <string name="control_endpoint_label">FastAPI Backend Base URL</string>

@@ -26,8 +26,8 @@ data class AuditRunEntity(
 )
 
 /**
- * Room database entity for 'AuditFinding' mapping strictly to the required schema fields:
- * file_path, line_bounds, threat_category, severity, description, and replacement_snippet.
+ * Room database entity for 'AuditFinding' mapping strictly to required schema fields:
+ * id (PrimaryKey), file_path, line_bounds, threat_category, severity, description, and replacement_snippet.
  */
 @Entity(
     tableName = "audit_findings",
@@ -43,11 +43,8 @@ data class AuditRunEntity(
 )
 data class AuditFinding(
     @PrimaryKey
-    @ColumnInfo(name = "finding_id")
-    val findingId: String,
-
-    @ColumnInfo(name = "run_id")
-    val runId: String,
+    @ColumnInfo(name = "id")
+    val id: String,
 
     @ColumnInfo(name = "file_path")
     val filePath: String,
@@ -66,6 +63,9 @@ data class AuditFinding(
 
     @ColumnInfo(name = "replacement_snippet")
     val replacementSnippet: String,
+
+    @ColumnInfo(name = "run_id")
+    val runId: String = "",
 
     @ColumnInfo(name = "original_snippet")
     val originalSnippet: String = "",

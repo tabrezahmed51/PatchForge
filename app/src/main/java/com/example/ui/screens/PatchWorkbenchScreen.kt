@@ -48,7 +48,7 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import com.example.R
-import com.example.data.local.FindingEntity
+import com.example.data.local.AuditFinding
 import com.example.data.local.PatchStatus
 import com.example.ui.components.EngineBadge
 import com.example.ui.components.ForgePanel
@@ -286,13 +286,13 @@ fun PatchWorkbenchScreen(
                     }
                 }
             } else {
-                items(findings, key = { it.findingId }) { finding ->
+                items(findings, key = { it.id }) { finding ->
                     PatchDiffCard(
                         finding = finding,
                         unifiedDiff = viewModel.buildPatchForFinding(finding),
-                        onApprove = { viewModel.approveFinding(finding.findingId) },
-                        onDismiss = { viewModel.dismissFinding(finding.findingId) },
-                        onReset = { viewModel.resetFindingStatus(finding.findingId) },
+                        onApprove = { viewModel.approveFinding(finding.id) },
+                        onDismiss = { viewModel.dismissFinding(finding.id) },
+                        onReset = { viewModel.resetFindingStatus(finding.id) },
                         onCopy = {
                             clipboard.setText(AnnotatedString(viewModel.buildPatchForFinding(finding)))
                             viewModel.notifyMessage("Copied Git patch for ${finding.filePath} (${finding.lineBounds})")
@@ -313,7 +313,7 @@ fun PatchWorkbenchScreen(
 
 @Composable
 private fun PatchDiffCard(
-    finding: FindingEntity,
+    finding: AuditFinding,
     unifiedDiff: String,
     onApprove: () -> Unit,
     onDismiss: () -> Unit,
@@ -331,7 +331,7 @@ private fun PatchDiffCard(
 
     ForgePanel(accentBorder = statusColor.copy(alpha = 0.6f)) {
         SectionHeaderLabel(
-            title = "${finding.findingId} · ${finding.threatCategory}",
+            title = "${finding.id} · ${finding.threatCategory}",
             trailingText = finding.patchStatus
         )
         Spacer(modifier = Modifier.height(8.dp))
