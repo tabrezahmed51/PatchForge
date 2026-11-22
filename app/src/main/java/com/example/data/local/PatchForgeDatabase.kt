@@ -8,11 +8,11 @@ import androidx.room.RoomDatabase
 @Database(
     entities = [
         AuditRunEntity::class,
-        FindingEntity::class,
+        AuditFinding::class,
         PendingSyncActionEntity::class,
         ChatMessageEntity::class
     ],
-    version = 1,
+    version = 2,
     exportSchema = false
 )
 abstract class PatchForgeDatabase : RoomDatabase() {
@@ -28,7 +28,10 @@ abstract class PatchForgeDatabase : RoomDatabase() {
                     context.applicationContext,
                     PatchForgeDatabase::class.java,
                     "patchforge_ops.db"
-                ).build().also { INSTANCE = it }
+                )
+                    .fallbackToDestructiveMigration(dropAllTables = true)
+                    .build()
+                    .also { INSTANCE = it }
             }
         }
     }

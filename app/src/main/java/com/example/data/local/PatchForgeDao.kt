@@ -18,17 +18,17 @@ interface PatchForgeDao {
     @Query("UPDATE audit_runs SET syncStatus = :syncStatus, remoteJobId = :remoteJobId WHERE runId = :runId")
     suspend fun updateAuditRunSync(runId: String, syncStatus: String, remoteJobId: String?)
 
-    // Findings
-    @Query("SELECT * FROM findings WHERE runId = :runId ORDER BY CASE severity WHEN 'CRITICAL' THEN 0 WHEN 'HIGH' THEN 1 WHEN 'MEDIUM' THEN 2 ELSE 3 END")
-    fun observeFindingsForRun(runId: String): Flow<List<FindingEntity>>
+    // AuditFinding records
+    @Query("SELECT * FROM audit_findings WHERE run_id = :runId ORDER BY CASE severity WHEN 'CRITICAL' THEN 0 WHEN 'HIGH' THEN 1 WHEN 'MEDIUM' THEN 2 ELSE 3 END")
+    fun observeFindingsForRun(runId: String): Flow<List<AuditFinding>>
 
-    @Query("SELECT * FROM findings ORDER BY CASE severity WHEN 'CRITICAL' THEN 0 WHEN 'HIGH' THEN 1 WHEN 'MEDIUM' THEN 2 ELSE 3 END")
-    fun observeAllFindings(): Flow<List<FindingEntity>>
+    @Query("SELECT * FROM audit_findings ORDER BY CASE severity WHEN 'CRITICAL' THEN 0 WHEN 'HIGH' THEN 1 WHEN 'MEDIUM' THEN 2 ELSE 3 END")
+    fun observeAllFindings(): Flow<List<AuditFinding>>
 
     @Insert(onConflict = OnConflictStrategy.REPLACE)
-    suspend fun insertFindings(findings: List<FindingEntity>)
+    suspend fun insertFindings(findings: List<AuditFinding>)
 
-    @Query("UPDATE findings SET patchStatus = :status WHERE findingId = :findingId")
+    @Query("UPDATE audit_findings SET patch_status = :status WHERE finding_id = :findingId")
     suspend fun updateFindingPatchStatus(findingId: String, status: String)
 
     // Offline Sync & Retry Queue

@@ -1,5 +1,6 @@
 package com.example.data.local
 
+import androidx.room.ColumnInfo
 import androidx.room.Entity
 import androidx.room.ForeignKey
 import androidx.room.Index
@@ -19,38 +20,66 @@ data class AuditRunEntity(
     val maxNestingDepth: Int,
     val cyclomaticPeak: Int,
     val astHotspots: String,
-    val syncStatus: String, // LOCAL_ENGINE, SYNCED, QUEUED_OFFLINE
+    val syncStatus: String, // LOCAL_ENGINE, CLOUD_SYNCED, SYNCED, QUEUED_OFFLINE
     val remoteJobId: String? = null,
     val createdAt: Long = System.currentTimeMillis()
 )
 
+/**
+ * Room database entity for 'AuditFinding' mapping strictly to the required schema fields:
+ * file_path, line_bounds, threat_category, severity, description, and replacement_snippet.
+ */
 @Entity(
-    tableName = "findings",
+    tableName = "audit_findings",
     foreignKeys = [
         ForeignKey(
             entity = AuditRunEntity::class,
             parentColumns = ["runId"],
-            childColumns = ["runId"],
+            childColumns = ["run_id"],
             onDelete = ForeignKey.CASCADE
         )
     ],
-    indices = [Index("runId")]
+    indices = [Index("run_id")]
 )
-data class FindingEntity(
-    @PrimaryKey val findingId: String,
+data class AuditFinding(
+    @PrimaryKey
+    @ColumnInfo(name = "finding_id")
+    val findingId: String,
+
+    @ColumnInfo(name = "run_id")
     val runId: String,
-    // Strictly enforced structured schema fields
+
+    @ColumnInfo(name = "file_path")
     val filePath: String,
+
+    @ColumnInfo(name = "line_bounds")
     val lineBounds: String,
+
+    @ColumnInfo(name = "threat_category")
     val threatCategory: String,
+
+    @ColumnInfo(name = "severity")
     val severity: String, // CRITICAL, HIGH, MEDIUM, LOW
+
+    @ColumnInfo(name = "description")
     val description: String,
+
+    @ColumnInfo(name = "replacement_snippet")
     val replacementSnippet: String,
-    // Supplemental operational metadata
-    val originalSnippet: String,
-    val engineType: String, // SECURITY_ENGINE, AGENTIC_REVIEW
-    val packageOrSymbol: String,
-    val cyclomaticComplexity: Int,
+
+    @ColumnInfo(name = "original_snippet")
+    val originalSnippet: String = "",
+
+    @ColumnInfo(name = "engine_type")
+    val engineType: String = "AGENTIC_REVIEW", // SECURITY_ENGINE, AGENTIC_REVIEW
+
+    @ColumnInfo(name = "package_or_symbol")
+    val packageOrSymbol: String = "",
+
+    @ColumnInfo(name = "cyclomatic_complexity")
+    val cyclomaticComplexity: Int = 1,
+
+    @ColumnInfo(name = "patch_status")
     val patchStatus: String = PatchStatus.PENDING // PENDING, APPROVED, DISMISSED, QUEUED_SYNC, APPLIED
 )
 
