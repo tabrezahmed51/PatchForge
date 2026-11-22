@@ -7,8 +7,20 @@ import androidx.lifecycle.ViewModel
 import androidx.lifecycle.ViewModelProvider
 import androidx.lifecycle.viewModelScope
 import com.example.R
+import com.example.core.AgentCommandPolicyEngine
+import com.example.core.AgentPermissionMode
+import com.example.core.AgentShellManager
+import com.example.core.PendingAgentAction
+import com.example.core.PolicyDecision
+import com.example.core.ShellEnvironmentType
+import com.example.core.StrictUdiffEngine
+import com.example.core.TerminalLogEntry
+import com.example.core.UdiffParseResult
+import com.example.data.DatabaseEntryPoint
+import dagger.hilt.android.EntryPointAccessors
 import com.example.data.ai.AgentPersona
 import com.example.data.ai.AiModelProfile
+import com.example.data.ai.AtomicPatchVerificationResult
 import com.example.data.ai.AuditEngineMode
 import com.example.data.ai.GeminiAiLogicProvider
 import com.example.data.ai.GroundedSearchResult
@@ -19,13 +31,18 @@ import com.example.data.local.AuditRunEntity
 import com.example.data.local.BackendConfig
 import com.example.data.local.BackendPreferences
 import com.example.data.local.ChatMessageEntity
-import com.example.data.local.PatchForgeDatabase
+import com.example.data.local.ForgeTokenStatus
+import com.example.data.local.GitForgeProvider
 import com.example.data.local.PatchStatus
 import com.example.data.local.PendingSyncActionEntity
+import com.example.data.local.SecureTokenStore
 import com.example.data.remote.CloudAuditFinding
 import com.example.data.remote.CloudAuditRun
 import com.example.data.remote.FirestoreSyncRepository
+import com.example.data.remote.ForgeRepoSnapshot
+import com.example.data.remote.GitForgeClient
 import com.example.data.remote.HealthResponse
+import com.example.data.remote.ParsedForgeRepo
 import com.example.data.remote.WorkerEvent
 import com.example.data.remote.WorkerWebSocketClient
 import com.example.data.remote.WsConnectionState
@@ -93,6 +110,28 @@ sealed interface CloudSyncUiState<out T> {
     data class Error(val message: String) : CloudSyncUiState<Nothing>
 }
 
+sealed interface RepoInspectionState {
+    data object Idle : RepoInspectionState
+    data class Loading(val target: String) : RepoInspectionState
+    data class Loaded(
+        val snapshot: ForgeRepoSnapshot,
+        val activeFilePath: String? = null,
+        val activeFileContent: String? = null,
+        val isLoadingFile: Boolean = false
+    ) : RepoInspectionState
+    data class Error(val message: String) : RepoInspectionState
+}
+
+data class PendingRemoteFixApproval(
+    val parsedRepo: ParsedForgeRepo,
+    val branch: String,
+    val filePath: String,
+    val findingId: String,
+    val commitMessage: String,
+    val updatedContent: String,
+    val diffPreview: String
+)
+
 data class ScanEditorState(
     val filePath: String = InspectionTemplates.all.first().filePath,
     val payload: String = InspectionTemplates.all.first().content,
@@ -103,10 +142,17 @@ data class ScanEditorState(
     val engineFilter: String = "ALL"
 )
 
+sealed interface PatchVerificationUiState {
+    data object Verifying : PatchVerificationUiState
+    data class Verified(val result: AtomicPatchVerificationResult) : PatchVerificationUiState
+    data class Failed(val message: String) : PatchVerificationUiState
+}
+
 data class AgentUiState(
     val persona: AgentPersona = AgentPersona.SUPPLY_CHAIN_AUDITOR,
     val modelProfile: AiModelProfile = AiModelProfile.CARBON_HIGH_THINKING,
     val attachActiveAuditContext: Boolean = true,
+    val strictUdiffMode: Boolean = false,
     val streamState: ChatStreamState = ChatStreamState.Idle,
     val isTranscribingAudio: Boolean = false
 )
@@ -137,6 +183,18 @@ class PatchForgeViewModel(
 
     val aiIntegrationConfig: StateFlow<AiApiIntegrationConfig> = repository.aiIntegrationConfig
         .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), AiApiIntegrationConfig())
+
+    val permissionMode: StateFlow<AgentPermissionMode> = repository.permissionMode
+        .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), AgentPermissionMode.ASK_WHEN_NEEDED)
+
+    val shellEnvironment: StateFlow<ShellEnvironmentType> = repository.shellEnvironment
+        .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), ShellEnvironmentType.ANDROID_SANDBOX)
+
+    val forgeTokenStatuses: StateFlow<Map<GitForgeProvider, ForgeTokenStatus>> = repository.forgeTokenStatuses
+        .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), emptyMap())
+
+    val isTermuxInstalled: Boolean = repository.isTermuxInstalled
+    val sandboxWorkspacePath: String = repository.sandboxWorkspacePath
 
     val wsConnectionState: StateFlow<WsConnectionState> = repository.wsConnectionState
         .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), WsConnectionState.Disconnected)
@@ -193,6 +251,30 @@ class PatchForgeViewModel(
 
     private val _isRetryingQueue = MutableStateFlow(false)
     val isRetryingQueue: StateFlow<Boolean> = _isRetryingQueue.asStateFlow()
+
+    // Agentic Shell Terminal & Pending Approval Queue
+    private val _pendingAgentActions = MutableStateFlow<List<PendingAgentAction>>(emptyList())
+    val pendingAgentActions: StateFlow<List<PendingAgentAction>> = _pendingAgentActions.asStateFlow()
+
+    private val _terminalLogs = MutableStateFlow<List<TerminalLogEntry>>(emptyList())
+    val terminalLogs: StateFlow<List<TerminalLogEntry>> = _terminalLogs.asStateFlow()
+
+    private val _isRunningShellAction = MutableStateFlow(false)
+    val isRunningShellAction: StateFlow<Boolean> = _isRunningShellAction.asStateFlow()
+
+    // Multi-Forge Git Repository Inspection & Consequential Fix Approval
+    private val _repoInspectionState = MutableStateFlow<RepoInspectionState>(RepoInspectionState.Idle)
+    val repoInspectionState: StateFlow<RepoInspectionState> = _repoInspectionState.asStateFlow()
+
+    private val _pendingRemoteFix = MutableStateFlow<PendingRemoteFixApproval?>(null)
+    val pendingRemoteFix: StateFlow<PendingRemoteFixApproval?> = _pendingRemoteFix.asStateFlow()
+
+    private val _isCommittingRemoteFix = MutableStateFlow(false)
+    val isCommittingRemoteFix: StateFlow<Boolean> = _isCommittingRemoteFix.asStateFlow()
+
+    // Per-finding AST Self-Verification & Atomic UDIFF refinement cache
+    private val _patchVerificationStates = MutableStateFlow<Map<String, PatchVerificationUiState>>(emptyMap())
+    val patchVerificationStates: StateFlow<Map<String, PatchVerificationUiState>> = _patchVerificationStates.asStateFlow()
 
     private val _snackbarEvents = MutableSharedFlow<String>(extraBufferCapacity = 4)
     val snackbarEvents: SharedFlow<String> = _snackbarEvents.asSharedFlow()
@@ -397,14 +479,47 @@ class PatchForgeViewModel(
         }
     }
 
-    fun buildPatchForFinding(finding: AuditFinding): String =
-        PatchGenerator.buildUnifiedDiff(finding)
+    fun buildPatchForFinding(finding: AuditFinding): String {
+        val verified = _patchVerificationStates.value[finding.id] as? PatchVerificationUiState.Verified
+        return verified?.result?.unifiedDiff ?: PatchGenerator.buildUnifiedDiff(finding)
+    }
+
+    fun verifyAtomicPatchAgainstAst(finding: AuditFinding) {
+        viewModelScope.launch {
+            _patchVerificationStates.value = _patchVerificationStates.value + (finding.id to PatchVerificationUiState.Verifying)
+            try {
+                val relatedRun = auditRuns.value.firstOrNull { it.runId == finding.runId }
+                val sourceContext = relatedRun?.inputPayload ?: _scanEditor.value.payload
+                val astSummary = if (relatedRun != null) {
+                    "MaxNesting=${relatedRun.maxNestingDepth}, CyclomaticPeak=${relatedRun.cyclomaticPeak}, Hotspots=${relatedRun.astHotspots}"
+                } else {
+                    "FindingCyclomatic=${finding.cyclomaticComplexity}, Symbol=${finding.packageOrSymbol}"
+                }
+                val result = repository.verifyAndTightenAtomicPatch(
+                    finding = finding,
+                    sourceContext = sourceContext,
+                    astSummary = astSummary,
+                    modelProfile = _agentState.value.modelProfile
+                )
+                _patchVerificationStates.value = _patchVerificationStates.value + (finding.id to PatchVerificationUiState.Verified(result))
+                val statusLabel = if (result.astVerified && result.isAtomic) "AST VERIFIED (ATOMIC)" else "VERIFIED WITH NOTES"
+                _snackbarEvents.tryEmit("${finding.id}: $statusLabel")
+            } catch (e: CancellationException) {
+                throw e
+            } catch (e: Exception) {
+                Log.e(VM_TAG, "AST verification failed for ${finding.id}", e)
+                val msg = e.localizedMessage ?: "AST verification failed."
+                _patchVerificationStates.value = _patchVerificationStates.value + (finding.id to PatchVerificationUiState.Failed(msg))
+                _snackbarEvents.tryEmit("AST check error: $msg")
+            }
+        }
+    }
 
     fun buildApprovedBundle(): String {
         val approved = allFindings.value.filter {
             it.patchStatus == PatchStatus.APPROVED || it.patchStatus == PatchStatus.QUEUED_SYNC
         }
-        return PatchGenerator.buildCombinedPatchBundle(approved)
+        return approved.joinToString("\n\n") { buildPatchForFinding(it) }
     }
 
     fun dispatchApprovedPatches(targetBranch: String, commitMessage: String) {
@@ -447,6 +562,14 @@ class PatchForgeViewModel(
         _agentState.value = _agentState.value.copy(attachActiveAuditContext = enabled)
     }
 
+    fun toggleStrictUdiffMode(enabled: Boolean) {
+        _agentState.value = _agentState.value.copy(strictUdiffMode = enabled)
+        _snackbarEvents.tryEmit(
+            if (enabled) "Strict UDIFF Mode ON: Zero prose, atomic Git diffs only."
+            else "Strict UDIFF Mode OFF: Standard conversational triage."
+        )
+    }
+
     fun sendChatMessage(rawText: String) {
         val message = rawText.trim()
         if (message.isBlank()) return
@@ -475,7 +598,8 @@ class PatchForgeViewModel(
                     userMessage = message,
                     persona = currentAgent.persona,
                     modelProfile = currentAgent.modelProfile,
-                    auditContext = contextSummary
+                    auditContext = contextSummary,
+                    strictUdiffMode = currentAgent.strictUdiffMode
                 ).collect { delta ->
                     buffer.append(delta)
                     _agentState.value = _agentState.value.copy(
@@ -483,7 +607,16 @@ class PatchForgeViewModel(
                     )
                 }
 
-                val finalReply = buffer.toString().trim()
+                val rawReply = buffer.toString().trim()
+                val finalReply = if (currentAgent.strictUdiffMode && rawReply.isNotEmpty()) {
+                    when (val parsed = StrictUdiffEngine.extractStrictUdiff(rawReply)) {
+                        is UdiffParseResult.Valid -> parsed.cleanDiff
+                        is UdiffParseResult.Invalid -> rawReply
+                    }
+                } else {
+                    rawReply
+                }
+
                 if (finalReply.isNotEmpty()) {
                     repository.appendModelChatMessage(
                         content = finalReply,
@@ -603,6 +736,293 @@ class PatchForgeViewModel(
         _snackbarEvents.tryEmit(message)
     }
 
+    // --- Global Permission Modes & Agentic Shell Terminal ---
+
+    fun setPermissionMode(mode: AgentPermissionMode) {
+        viewModelScope.launch {
+            repository.savePermissionMode(mode)
+            _snackbarEvents.tryEmit("Permission Mode: ${mode.label}")
+        }
+    }
+
+    fun setShellEnvironment(environment: ShellEnvironmentType) {
+        viewModelScope.launch {
+            repository.saveShellEnvironment(environment)
+            _snackbarEvents.tryEmit("Shell Environment: ${environment.label}")
+        }
+    }
+
+    fun requestShellCommand(rawCommand: String, rationale: String = "Operator command") {
+        val cmd = rawCommand.trim()
+        if (cmd.isBlank()) return
+        val mode = permissionMode.value
+        val env = shellEnvironment.value
+        val evaluation = AgentCommandPolicyEngine.evaluate(cmd, mode)
+
+        if (evaluation.decision == PolicyDecision.AUTO_EXECUTE) {
+            runApprovedShellCommand(cmd, env, approvedByOperator = false)
+        } else {
+            val action = PendingAgentAction(
+                command = cmd,
+                rationale = rationale,
+                environment = env,
+                riskLevel = evaluation.riskLevel,
+                policyReason = evaluation.reason
+            )
+            _pendingAgentActions.value = listOf(action) + _pendingAgentActions.value
+            _snackbarEvents.tryEmit("Approval required (${evaluation.riskLevel.label}): ${cmd.take(40)}")
+        }
+    }
+
+    fun approvePendingAction(actionId: String) {
+        val action = _pendingAgentActions.value.firstOrNull { it.actionId == actionId } ?: return
+        _pendingAgentActions.value = _pendingAgentActions.value.filterNot { it.actionId == actionId }
+        runApprovedShellCommand(action.command, action.environment, approvedByOperator = true)
+    }
+
+    fun denyPendingAction(actionId: String) {
+        val action = _pendingAgentActions.value.firstOrNull { it.actionId == actionId } ?: return
+        _pendingAgentActions.value = _pendingAgentActions.value.filterNot { it.actionId == actionId }
+        _snackbarEvents.tryEmit("Denied command: ${action.command.take(48)}")
+    }
+
+    fun runAgentShellGoal(goal: String) {
+        val cleanGoal = goal.trim()
+        if (cleanGoal.isBlank()) return
+        viewModelScope.launch {
+            _isRunningShellAction.value = true
+            try {
+                val env = shellEnvironment.value
+                val contextInfo = buildString {
+                    appendLine("Workspace: ${repository.sandboxWorkspacePath}")
+                    val repoState = _repoInspectionState.value
+                    if (repoState is RepoInspectionState.Loaded) {
+                        appendLine("Loaded Repo: ${repoState.snapshot.displayName} (${repoState.snapshot.defaultBranch})")
+                        appendLine("Files: ${repoState.snapshot.files.take(12).joinToString { it.path }}")
+                    }
+                    activeRun.value?.let {
+                        appendLine("Active Audit: ${it.filePath} (Risk ${it.riskScore}/100)")
+                    }
+                }
+                val steps = repository.proposeAgentShellPlan(
+                    goal = cleanGoal,
+                    workspaceContext = contextInfo,
+                    environment = env,
+                    modelProfile = _agentState.value.modelProfile
+                )
+                if (steps.isEmpty()) {
+                    _snackbarEvents.tryEmit("Agent proposed no shell steps for that goal.")
+                    return@launch
+                }
+                val mode = permissionMode.value
+                var autoRan = 0
+                var queued = 0
+                for (step in steps) {
+                    val eval = AgentCommandPolicyEngine.evaluate(step.command, mode)
+                    if (eval.decision == PolicyDecision.AUTO_EXECUTE) {
+                        val entry = repository.executeShellCommand(step.command, env, approvedByOperator = false)
+                        _terminalLogs.value = (_terminalLogs.value + entry).takeLast(40)
+                        autoRan++
+                    } else {
+                        val pending = PendingAgentAction(
+                            command = step.command,
+                            rationale = step.rationale,
+                            environment = env,
+                            riskLevel = eval.riskLevel,
+                            policyReason = eval.reason
+                        )
+                        _pendingAgentActions.value = _pendingAgentActions.value + pending
+                        queued++
+                    }
+                }
+                _snackbarEvents.tryEmit(
+                    "Agent plan ready: $autoRan executed automatically, $queued awaiting approval."
+                )
+            } catch (e: CancellationException) {
+                throw e
+            } catch (e: Exception) {
+                Log.e(VM_TAG, "Agent shell planning failed", e)
+                _snackbarEvents.tryEmit("Agent shell planner error: ${e.localizedMessage ?: "failed"}")
+            } finally {
+                _isRunningShellAction.value = false
+            }
+        }
+    }
+
+    fun clearTerminalLogs() {
+        _terminalLogs.value = emptyList()
+    }
+
+    private fun runApprovedShellCommand(
+        command: String,
+        environment: ShellEnvironmentType,
+        approvedByOperator: Boolean
+    ) {
+        viewModelScope.launch {
+            _isRunningShellAction.value = true
+            try {
+                val entry = repository.executeShellCommand(
+                    command = command,
+                    environment = environment,
+                    approvedByOperator = approvedByOperator
+                )
+                _terminalLogs.value = (_terminalLogs.value + entry).takeLast(40)
+            } finally {
+                _isRunningShellAction.value = false
+            }
+        }
+    }
+
+    // --- Multi-Forge Git Tokens & Repository Inspection / Fix Workflow ---
+
+    fun saveForgeToken(provider: GitForgeProvider, rawToken: String) {
+        viewModelScope.launch {
+            repository.saveForgeToken(provider, rawToken)
+            _snackbarEvents.tryEmit("Encrypted ${provider.label} token saved on-device.")
+        }
+    }
+
+    fun clearForgeToken(provider: GitForgeProvider) {
+        viewModelScope.launch {
+            repository.clearForgeToken(provider)
+            _snackbarEvents.tryEmit("Removed ${provider.label} access token.")
+        }
+    }
+
+    fun inspectForgeRepository(
+        provider: GitForgeProvider,
+        repoInput: String,
+        branchOverride: String = ""
+    ) {
+        val clean = repoInput.trim()
+        if (clean.isBlank()) {
+            _repoInspectionState.value = RepoInspectionState.Error("Enter a repository URL or owner/repo.")
+            return
+        }
+        viewModelScope.launch {
+            _repoInspectionState.value = RepoInspectionState.Loading(clean)
+            val result = repository.inspectForgeRepository(
+                provider = provider,
+                repoInput = clean,
+                branchOverride = branchOverride.trim().ifBlank { null }
+            )
+            _repoInspectionState.value = result.fold(
+                onSuccess = { snapshot ->
+                    _snackbarEvents.tryEmit("Connected to ${snapshot.displayName} (${snapshot.files.size} files)")
+                    RepoInspectionState.Loaded(snapshot)
+                },
+                onFailure = { err ->
+                    RepoInspectionState.Error(err.localizedMessage ?: "Unable to inspect repository.")
+                }
+            )
+        }
+    }
+
+    fun loadForgeFileIntoScanner(
+        filePath: String,
+        autoRunAudit: Boolean,
+        onReadyNavigateToScan: () -> Unit = {}
+    ) {
+        val current = _repoInspectionState.value as? RepoInspectionState.Loaded ?: return
+        viewModelScope.launch {
+            _repoInspectionState.value = current.copy(isLoadingFile = true, activeFilePath = filePath)
+            val res = repository.fetchForgeFile(
+                parsedRepo = current.snapshot.parsedRepo,
+                branch = current.snapshot.defaultBranch,
+                filePath = filePath
+            )
+            res.fold(
+                onSuccess = { content ->
+                    _repoInspectionState.value = current.copy(
+                        activeFilePath = filePath,
+                        activeFileContent = content,
+                        isLoadingFile = false
+                    )
+                    _scanEditor.value = _scanEditor.value.copy(
+                        filePath = filePath,
+                        payload = content
+                    )
+                    onReadyNavigateToScan()
+                    if (autoRunAudit) {
+                        runDualEngineAudit()
+                    } else {
+                        _snackbarEvents.tryEmit("Loaded $filePath into Scan Workspace & Sandbox.")
+                    }
+                },
+                onFailure = { err ->
+                    _repoInspectionState.value = current.copy(isLoadingFile = false)
+                    _snackbarEvents.tryEmit(err.localizedMessage ?: "Could not fetch $filePath")
+                }
+            )
+        }
+    }
+
+    /**
+     * Stages a consequential remote repository fix commit for explicit operator confirmation.
+     * Remote repository writes NEVER execute without explicit user approval.
+     */
+    fun requestRemoteRepoFix(finding: AuditFinding) {
+        val loaded = _repoInspectionState.value as? RepoInspectionState.Loaded
+        if (loaded == null || loaded.activeFileContent == null || loaded.activeFilePath != finding.filePath) {
+            _snackbarEvents.tryEmit("Inspect and load '${finding.filePath}' from the Dashboard repo panel first to commit directly.")
+            return
+        }
+        val originalContent = loaded.activeFileContent
+        val updatedContent = if (finding.originalSnippet.isNotBlank() && originalContent.contains(finding.originalSnippet)) {
+            originalContent.replaceFirst(finding.originalSnippet, finding.replacementSnippet)
+        } else {
+            "$originalContent\n\n// PatchForge Remediation (${finding.threatCategory}):\n${finding.replacementSnippet}\n"
+        }
+        _pendingRemoteFix.value = PendingRemoteFixApproval(
+            parsedRepo = loaded.snapshot.parsedRepo,
+            branch = loaded.snapshot.defaultBranch,
+            filePath = finding.filePath,
+            findingId = finding.id,
+            commitMessage = "fix(${finding.threatCategory.lowercase()}): remediate ${finding.filePath} (${finding.lineBounds})",
+            updatedContent = updatedContent,
+            diffPreview = PatchGenerator.buildUnifiedDiff(finding)
+        )
+    }
+
+    fun cancelRemoteRepoFix() {
+        _pendingRemoteFix.value = null
+    }
+
+    fun confirmRemoteRepoFix() {
+        val pending = _pendingRemoteFix.value ?: return
+        viewModelScope.launch {
+            _isCommittingRemoteFix.value = true
+            try {
+                val res = repository.commitRemoteFileFix(
+                    parsedRepo = pending.parsedRepo,
+                    branch = pending.branch,
+                    filePath = pending.filePath,
+                    updatedContent = pending.updatedContent,
+                    commitMessage = pending.commitMessage
+                )
+                res.fold(
+                    onSuccess = { commit ->
+                        repository.updateFindingPatchStatus(pending.findingId, PatchStatus.APPLIED)
+                        _pendingRemoteFix.value = null
+                        _snackbarEvents.tryEmit(commit.message)
+                    },
+                    onFailure = { err ->
+                        _snackbarEvents.tryEmit(err.localizedMessage ?: "Commit failed.")
+                    }
+                )
+            } finally {
+                _isCommittingRemoteFix.value = false
+            }
+        }
+    }
+
+    fun deleteFinding(findingId: String) {
+        viewModelScope.launch {
+            repository.deleteFinding(findingId)
+            _snackbarEvents.tryEmit("Deleted finding $findingId.")
+        }
+    }
+
     override fun onCleared() {
         super.onCleared()
         repository.disconnectWorkerStream()
@@ -619,8 +1039,16 @@ class PatchForgeViewModel(
             val appContext = context.applicationContext
             val databaseId = appContext.getString(R.string.firestore_database_id)
             val firestoreDb = FirebaseFirestore.getInstance(databaseId)
-            val db = PatchForgeDatabase.getInstance(appContext)
+            val dbEntryPoint = EntryPointAccessors.fromApplication(
+                appContext,
+                DatabaseEntryPoint::class.java
+            )
+            val patchForgeDao = dbEntryPoint.patchForgeDao()
+            val auditFindingDao = dbEntryPoint.auditFindingDao()
             val prefs = BackendPreferences(appContext)
+            val tokenStore = SecureTokenStore(appContext)
+            val gitForgeClient = GitForgeClient()
+            val shellManager = AgentShellManager(appContext)
             val aiProvider = GeminiAiLogicProvider()
             val thirdPartyClient = ThirdPartyMultimodalClient()
             val firestoreSync = FirestoreSyncRepository(firestoreDb)
@@ -629,8 +1057,12 @@ class PatchForgeViewModel(
             )
             val wsClient = WorkerWebSocketClient(wsScope)
             val repo = PatchForgeRepository(
-                dao = db.patchForgeDao(),
+                dao = patchForgeDao,
+                auditFindingDao = auditFindingDao,
                 preferences = prefs,
+                secureTokenStore = tokenStore,
+                gitForgeClient = gitForgeClient,
+                shellManager = shellManager,
                 aiProvider = aiProvider,
                 thirdPartyClient = thirdPartyClient,
                 firestoreSync = firestoreSync,

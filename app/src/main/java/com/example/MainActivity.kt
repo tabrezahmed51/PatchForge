@@ -9,7 +9,9 @@ import androidx.activity.enableEdgeToEdge
 import com.example.core.configureAppCheck
 import com.example.ui.screens.AppRoot
 import com.example.ui.theme.PatchForgeTheme
+import dagger.hilt.android.AndroidEntryPoint
 
+@AndroidEntryPoint
 class MainActivity : ComponentActivity() {
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)

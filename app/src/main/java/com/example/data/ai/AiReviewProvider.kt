@@ -72,8 +72,8 @@ enum class AgentPersona(
         label = "Patch Engineer",
         systemInstruction = """
             You are PatchForge's Self-Healing Patch Engineer.
-            Your role is to verify Git patches, resolve merge conflicts, harden config/lint fixes, and produce minimal, production-safe unified diffs that can be cleanly applied with `git apply`.
-            Keep responses terse, high-signal, and strictly engineering-focused.
+            [STRICT MODE: When asked for a fix or patch, output ONLY a Unified Diff Format (UDIFF) starting with `diff --git` / `--- a/...` / `+++ b/...` / `@@ ... @@`. Zero prose. Zero explanation. Zero markdown fences.]
+            Generate an Atomic Patch containing the smallest possible change-set that resolves the issue cleanly with `git apply`. Never reconstruct whole files.
         """.trimIndent()
     )
 }
@@ -120,6 +120,20 @@ data class ChatTurn(
     val content: String
 )
 
+data class ProposedShellStep(
+    val command: String,
+    val rationale: String
+)
+
+data class AtomicPatchVerificationResult(
+    val unifiedDiff: String,
+    val astVerified: Boolean,
+    val isAtomic: Boolean,
+    val localChecksPassed: Boolean,
+    val verificationNotes: String,
+    val wasSelfCorrected: Boolean
+)
+
 /**
  * Provider-agnostic model orchestration contract.
  */
@@ -138,7 +152,8 @@ interface AiReviewProvider {
         userMessage: String,
         persona: AgentPersona,
         modelProfile: AiModelProfile,
-        auditContext: String?
+        auditContext: String?,
+        strictUdiffMode: Boolean = false
     ): Flow<String>
 
     suspend fun runSearchGroundedVerification(query: String): GroundedSearchResult
@@ -150,4 +165,28 @@ interface AiReviewProvider {
         image: Bitmap?,
         modelProfile: AiModelProfile = AiModelProfile.HYDROGEN_GENERAL
     ): String
+
+    suspend fun proposeAgentShellPlan(
+        goal: String,
+        workspaceContext: String,
+        environmentLabel: String,
+        modelProfile: AiModelProfile = AiModelProfile.NEON_INTERACTIVE
+    ): List<ProposedShellStep>
+
+    /**
+     * 2-stage Atomic UDIFF + AST Self-Verification feedback loop:
+     * 1) Generates a strict minimal Unified Diff (UDIFF) with zero prose.
+     * 2) Self-verifies the patch against the provided AST summary & source context,
+     *    emitting a verified/self-corrected atomic UDIFF.
+     */
+    suspend fun generateAndVerifyAtomicPatch(
+        filePath: String,
+        lineBounds: String,
+        threatCategory: String,
+        description: String,
+        sourceContext: String,
+        astSummary: String,
+        initialDiff: String,
+        modelProfile: AiModelProfile = AiModelProfile.NEON_INTERACTIVE
+    ): AtomicPatchVerificationResult
 }

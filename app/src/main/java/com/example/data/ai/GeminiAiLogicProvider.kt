@@ -2,6 +2,8 @@ package com.example.data.ai
 
 import android.graphics.Bitmap
 import android.util.Log
+import com.example.core.StrictUdiffEngine
+import com.example.core.UdiffParseResult
 import com.google.firebase.Firebase
 import com.google.firebase.ai.GenerativeModel
 import com.google.firebase.ai.ai
@@ -123,7 +125,9 @@ class GeminiAiLogicProvider : AiReviewProvider {
                     You are PatchForge's Dual-Engine Analysis Orchestrator combining:
                     1. SECURITY_ENGINE (Socket.dev style): Inspects package.json, requirements.txt, go.mod, and Gradle files for typosquatting, suspicious install scripts, telemetry exfiltration, abandoned packages, insecure transport, and CVEs.
                     2. AGENTIC_REVIEW (Open-Rabbit style): Inspects source code and PR diffs for AST structural complexity, cyclomatic hotspots, race conditions, security flaws, semantic bugs, and config/lint regressions.
-                    Every finding MUST include accurate file_path, line_bounds (L<start>-L<end>), threat_category, severity, description, original_snippet, and a drop-in replacement_snippet suitable for generating a unified Git patch.
+                    ATOMIC PATCHING CONSTRAINT:
+                    - Every finding MUST include exact file_path, accurate line_bounds (L<start>-L<end>), threat_category, severity, description, original_snippet, and replacement_snippet.
+                    - NEVER return full-file reconstructions in original_snippet or replacement_snippet. Extract ONLY the minimal 1-to-8 line atomic change-set required so unified Git patches apply cleanly without branch drift.
                     """.trimIndent()
                 )
             }
@@ -133,9 +137,15 @@ class GeminiAiLogicProvider : AiReviewProvider {
     private fun buildChatModel(
         persona: AgentPersona,
         modelProfile: AiModelProfile,
-        auditContext: String?
+        auditContext: String?,
+        strictUdiffMode: Boolean
     ): GenerativeModel {
         val instructionBuilder = StringBuilder(persona.systemInstruction)
+        if (strictUdiffMode) {
+            instructionBuilder.append("\n\n")
+            instructionBuilder.append(StrictUdiffEngine.STRICT_UDIFF_SYSTEM_DIRECTIVE)
+            instructionBuilder.append("\nDo NOT output any greeting, summary, or markdown code fences. Start immediately with `diff --git` or `--- a/`.")
+        }
         if (!auditContext.isNullOrBlank()) {
             instructionBuilder.append("\n\nActive PatchForge Audit Context:\n")
             instructionBuilder.append(auditContext)
@@ -149,7 +159,7 @@ class GeminiAiLogicProvider : AiReviewProvider {
             }
         } else {
             generationConfig {
-                temperature = 0.35f
+                temperature = if (strictUdiffMode) 0.1f else 0.35f
             }
         }
 
@@ -215,10 +225,11 @@ class GeminiAiLogicProvider : AiReviewProvider {
         userMessage: String,
         persona: AgentPersona,
         modelProfile: AiModelProfile,
-        auditContext: String?
+        auditContext: String?,
+        strictUdiffMode: Boolean
     ): Flow<String> = flow {
         val timeoutMs = if (modelProfile.highThinking) 90_000L else 60_000L
-        val model = buildChatModel(persona, modelProfile, auditContext)
+        val model = buildChatModel(persona, modelProfile, auditContext, strictUdiffMode)
         val sdkHistory = history.map { turn ->
             content(role = turn.role) { text(turn.content) }
         }
@@ -356,6 +367,246 @@ class GeminiAiLogicProvider : AiReviewProvider {
             throw e
         } catch (e: Exception) {
             Log.e(TAG, "Multimodal inference failed", e)
+            throw e
+        }
+    }
+
+    private val shellPlanSchema: Schema by lazy {
+        Schema.obj(
+            properties = mapOf(
+                "steps" to Schema.array(
+                    description = "Ordered list of 1 to 4 concise POSIX shell commands to accomplish the engineering goal safely.",
+                    items = Schema.obj(
+                        properties = mapOf(
+                            "command" to Schema.string(description = "Exact single-line POSIX shell command to execute."),
+                            "rationale" to Schema.string(description = "Brief explanation of what this command verifies or changes.")
+                        )
+                    )
+                )
+            )
+        )
+    }
+
+    override suspend fun proposeAgentShellPlan(
+        goal: String,
+        workspaceContext: String,
+        environmentLabel: String,
+        modelProfile: AiModelProfile
+    ): List<ProposedShellStep> {
+        val config = generationConfig {
+            responseMimeType = "application/json"
+            responseSchema = shellPlanSchema
+            if (modelProfile.highThinking) {
+                thinkingConfig = thinkingConfig {
+                    thinkingLevel = ThinkingLevel.HIGH
+                }
+            }
+        }
+        val model = Firebase.ai.generativeModel(
+            modelName = modelProfile.modelId,
+            generationConfig = config,
+            systemInstruction = content {
+                text(
+                    "You are PatchForge's Agentic Shell Planner operating inside a $environmentLabel shell. " +
+                        "Return 1 to 4 minimal, high-signal POSIX commands to inspect, test, or verify the operator's goal. " +
+                        "Prefer read-only inspection first. Never exfiltrate secrets or run destructive system commands."
+                )
+            }
+        )
+        val prompt = """
+            Target Environment: $environmentLabel
+            Workspace Context: $workspaceContext
+            Operator Goal: $goal
+
+            Produce a concise JSON shell plan.
+        """.trimIndent()
+
+        val timeoutMs = if (modelProfile.highThinking) 90_000L else 60_000L
+        return try {
+            val response = withTimeout(timeoutMs) { model.generateContent(prompt) }
+            val raw = response.text ?: return emptyList()
+            val arr = JSONObject(raw).optJSONArray("steps") ?: return emptyList()
+            buildList {
+                for (i in 0 until arr.length()) {
+                    val obj = arr.optJSONObject(i) ?: continue
+                    val cmd = obj.optString("command").trim()
+                    val rationale = obj.optString("rationale").trim()
+                    if (cmd.isNotEmpty()) {
+                        add(ProposedShellStep(command = cmd, rationale = rationale.ifBlank { "Agent-proposed step" }))
+                    }
+                }
+            }.take(4)
+        } catch (e: TimeoutCancellationException) {
+            Log.e(TAG, "Shell plan timed out", e)
+            throw IllegalStateException("Agent shell planner timed out.", e)
+        } catch (e: CancellationException) {
+            throw e
+        } catch (e: Exception) {
+            Log.e(TAG, "Shell plan failed", e)
+            throw e
+        }
+    }
+
+    private val astVerificationSchema: Schema by lazy {
+        Schema.obj(
+            properties = mapOf(
+                "ast_valid" to Schema.boolean(
+                    description = "True if the unified diff preserves valid AST structure, scope, types, and branch syntax."
+                ),
+                "is_atomic" to Schema.boolean(
+                    description = "True if the diff is the smallest possible surgical change-set without full-file rewrites."
+                ),
+                "was_corrected" to Schema.boolean(
+                    description = "True if the verifier had to refine or tighten the candidate diff."
+                ),
+                "verification_notes" to Schema.string(
+                    description = "Short 1-sentence technical AST verification verdict."
+                ),
+                "verified_udiff" to Schema.string(
+                    description = "Strict raw Unified Diff Format (UDIFF) only. Zero prose, zero markdown fences."
+                )
+            )
+        )
+    }
+
+    override suspend fun generateAndVerifyAtomicPatch(
+        filePath: String,
+        lineBounds: String,
+        threatCategory: String,
+        description: String,
+        sourceContext: String,
+        astSummary: String,
+        initialDiff: String,
+        modelProfile: AiModelProfile
+    ): AtomicPatchVerificationResult {
+        val timeoutMs = if (modelProfile.highThinking) 90_000L else 60_000L
+        val sourceLineCount = sourceContext.takeIf { it.isNotBlank() }?.lines()?.size
+
+        try {
+            // Stage 1: Generate an atomic Unified Diff under strict zero-prose constraints.
+            val generatorConfig = if (modelProfile.highThinking) {
+                generationConfig {
+                    thinkingConfig = thinkingConfig { thinkingLevel = ThinkingLevel.HIGH }
+                }
+            } else {
+                generationConfig { temperature = 0.1f }
+            }
+            val generatorModel = Firebase.ai.generativeModel(
+                modelName = modelProfile.modelId,
+                generationConfig = generatorConfig,
+                systemInstruction = content {
+                    text(
+                        "${StrictUdiffEngine.STRICT_UDIFF_SYSTEM_DIRECTIVE}\n" +
+                            "Target file: $filePath ($lineBounds). Produce ONLY the minimal atomic Git diff hunk."
+                    )
+                }
+            )
+
+            val stage1Prompt = buildString {
+                appendLine("Finding: [$threatCategory] $description")
+                appendLine("Target File: $filePath ($lineBounds)")
+                if (astSummary.isNotBlank()) {
+                    appendLine("AST Telemetry: $astSummary")
+                }
+                appendLine("Candidate Draft Diff:")
+                appendLine(initialDiff)
+                if (sourceContext.isNotBlank()) {
+                    appendLine("Target Source Context:")
+                    appendLine(sourceContext.take(4_500))
+                }
+                appendLine("Emit ONLY the strict atomic Unified Diff (UDIFF). Zero prose.")
+            }
+
+            val stage1Response = withTimeout(timeoutMs) {
+                generatorModel.generateContent(stage1Prompt)
+            }
+            val stage1Raw = stage1Response.text.orEmpty()
+            val stage1Parsed = StrictUdiffEngine.extractStrictUdiff(stage1Raw, sourceLineCount)
+            val candidateDiff = when (stage1Parsed) {
+                is UdiffParseResult.Valid -> stage1Parsed.cleanDiff
+                is UdiffParseResult.Invalid -> initialDiff
+            }
+
+            // Stage 2: AST Self-Verification Validation Prompt (Structured JSON Schema)
+            val verifierConfig = generationConfig {
+                responseMimeType = "application/json"
+                responseSchema = astVerificationSchema
+                temperature = 0.1f
+            }
+            val verifierModel = Firebase.ai.generativeModel(
+                modelName = "gemini-4-neon",
+                generationConfig = verifierConfig,
+                systemInstruction = content {
+                    text(
+                        "You are PatchForge's AST Self-Verification Gate. Verify the candidate Unified Diff (UDIFF) " +
+                            "against the provided source code and AST metrics. Check delimiter balance, scope integrity, " +
+                            "line bounds alignment, and atomic minimality. If any syntactic drift or bloat exists, " +
+                            "output a tightened raw UDIFF in `verified_udiff` with zero prose and zero markdown fences."
+                    )
+                }
+            )
+
+            val stage2Prompt = buildString {
+                appendLine("File: $filePath | Bounds: $lineBounds | Category: $threatCategory")
+                appendLine("AST Context: ${astSummary.ifBlank { "Standard AST structure" }}")
+                if (sourceContext.isNotBlank()) {
+                    appendLine("Source File Excerpt:")
+                    appendLine(sourceContext.take(4_500))
+                }
+                appendLine("Candidate UDIFF to Self-Verify:")
+                appendLine(candidateDiff)
+            }
+
+            val stage2Response = withTimeout(60_000L) {
+                verifierModel.generateContent(stage2Prompt)
+            }
+            val verifyJson = JSONObject(
+                stage2Response.text ?: throw IllegalStateException("AST verifier returned empty payload.")
+            )
+
+            val aiAstValid = verifyJson.optBoolean("ast_valid", true)
+            val aiAtomic = verifyJson.optBoolean("is_atomic", true)
+            val wasCorrected = verifyJson.optBoolean("was_corrected", false)
+            val notes = verifyJson.optString("verification_notes", "AST self-verification completed.")
+            val verifiedRaw = verifyJson.optString("verified_udiff", candidateDiff)
+
+            val finalParsed = StrictUdiffEngine.extractStrictUdiff(verifiedRaw, sourceLineCount)
+            val finalDiff = when (finalParsed) {
+                is UdiffParseResult.Valid -> finalParsed.cleanDiff
+                is UdiffParseResult.Invalid -> candidateDiff
+            }
+            val localAst = StrictUdiffEngine.verifyPatchAgainstAst(
+                unifiedDiff = finalDiff,
+                sourceCode = sourceContext.takeIf { it.isNotBlank() }
+            )
+            val localAtomic = (finalParsed as? UdiffParseResult.Valid)?.isAtomic ?: true
+
+            val combinedNotes = buildString {
+                append(notes)
+                if (localAst.issues.isNotEmpty()) {
+                    append(" Local check: ")
+                    append(localAst.issues.joinToString("; "))
+                }
+                if (finalParsed is UdiffParseResult.Valid && finalParsed.warning != null) {
+                    append(" ${finalParsed.warning}")
+                }
+            }.trim()
+
+            return AtomicPatchVerificationResult(
+                unifiedDiff = finalDiff,
+                astVerified = aiAstValid && localAst.passed,
+                isAtomic = aiAtomic && localAtomic,
+                localChecksPassed = localAst.passed,
+                verificationNotes = combinedNotes,
+                wasSelfCorrected = wasCorrected || (finalDiff != initialDiff)
+            )
+        } catch (e: TimeoutCancellationException) {
+            Log.e(TAG, "Atomic patch AST verification timed out", e)
+            throw IllegalStateException("AST patch verification timed out.", e)
+        } catch (e: CancellationException) {
+            throw e
+        } catch (e: Exception) {
+            Log.e(TAG, "Atomic patch AST verification failed", e)
             throw e
         }
     }

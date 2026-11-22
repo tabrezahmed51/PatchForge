@@ -86,6 +86,10 @@ class BackendPreferences(private val context: Context) {
         val CUSTOM_BASE_URL = stringPreferencesKey("custom_ai_base_url")
         val CUSTOM_API_KEY = stringPreferencesKey("custom_ai_api_key")
         val CUSTOM_MODEL = stringPreferencesKey("custom_ai_model")
+
+        // Global Agentic Permission Mode & Shell Environment
+        val AGENT_PERMISSION_MODE = stringPreferencesKey("agent_permission_mode")
+        val SHELL_ENVIRONMENT = stringPreferencesKey("shell_environment")
     }
 
     val configFlow: Flow<BackendConfig> = context.backendDataStore.data.map { prefs ->
@@ -109,6 +113,14 @@ class BackendPreferences(private val context: Context) {
             customApiKey = prefs[Keys.CUSTOM_API_KEY] ?: "",
             customModel = prefs[Keys.CUSTOM_MODEL] ?: ThirdPartyAiVendor.OPENROUTER.defaultModel
         )
+    }
+
+    val agentPermissionModeIdFlow: Flow<String> = context.backendDataStore.data.map { prefs ->
+        prefs[Keys.AGENT_PERMISSION_MODE] ?: "ASK_WHEN_NEEDED"
+    }
+
+    val shellEnvironmentIdFlow: Flow<String> = context.backendDataStore.data.map { prefs ->
+        prefs[Keys.SHELL_ENVIRONMENT] ?: "ANDROID_SANDBOX"
     }
 
     suspend fun saveBackendConfig(
@@ -146,6 +158,18 @@ class BackendPreferences(private val context: Context) {
             prefs[Keys.ANTHROPIC_API_KEY] = ""
             prefs[Keys.CUSTOM_API_KEY] = ""
             prefs[Keys.ACTIVE_AI_VENDOR] = ThirdPartyAiVendor.NATIVE_GEMINI.id
+        }
+    }
+
+    suspend fun saveAgentPermissionMode(modeId: String) {
+        context.backendDataStore.edit { prefs ->
+            prefs[Keys.AGENT_PERMISSION_MODE] = modeId
+        }
+    }
+
+    suspend fun saveShellEnvironment(envId: String) {
+        context.backendDataStore.edit { prefs ->
+            prefs[Keys.SHELL_ENVIRONMENT] = envId
         }
     }
 }

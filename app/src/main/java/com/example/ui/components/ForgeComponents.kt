@@ -1,5 +1,8 @@
 package com.example.ui.components
 
+import androidx.compose.animation.AnimatedVisibility
+import androidx.compose.animation.expandVertically
+import androidx.compose.animation.shrinkVertically
 import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.Canvas
 import androidx.compose.foundation.background
@@ -19,10 +22,20 @@ import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.filled.ExpandLess
+import androidx.compose.material.icons.outlined.Info
+import androidx.compose.material3.HorizontalDivider
+import androidx.compose.material3.Icon
+import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.saveable.rememberSaveable
+import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
@@ -100,8 +113,145 @@ fun SectionHeaderLabel(
             Text(
                 text = trailingText,
                 style = MaterialTheme.typography.labelSmall,
-                color = ForgeTheme.colors.telemetryMuted
+                color = ForgeTheme.colors.telemetryMuted,
+                maxLines = 1,
+                overflow = TextOverflow.Ellipsis
             )
+        }
+    }
+}
+
+/**
+ * Compact Dynamic Header System for mobile vertical screens.
+ * Reclaims vertical viewport space by pairing a single-line truncated title & status LED
+ * with an expandable info/metadata drawer for secondary context and telemetry.
+ */
+@Composable
+fun ForgeDynamicHeader(
+    title: String,
+    compactSubtitle: String,
+    statusLabel: String,
+    statusColor: Color,
+    infoDetail: String,
+    metadataChips: List<Pair<String, String>> = emptyList(),
+    trailingAction: (@Composable () -> Unit)? = null,
+    modifier: Modifier = Modifier
+) {
+    val forge = ForgeTheme.colors
+    var infoExpanded by rememberSaveable(title) { mutableStateOf(false) }
+
+    Surface(
+        modifier = modifier.fillMaxWidth(),
+        shape = MaterialTheme.shapes.small,
+        color = MaterialTheme.colorScheme.surfaceContainerHigh,
+        border = BorderStroke(1.dp, forge.borderStrong)
+    ) {
+        Column(modifier = Modifier.fillMaxWidth()) {
+            Row(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .padding(start = 12.dp, end = 4.dp, top = 6.dp, bottom = 6.dp),
+                verticalAlignment = Alignment.CenterVertically,
+                horizontalArrangement = Arrangement.spacedBy(8.dp)
+            ) {
+                Box(
+                    modifier = Modifier
+                        .width(3.dp)
+                        .height(26.dp)
+                        .background(forge.amber)
+                )
+                Column(modifier = Modifier.weight(1f)) {
+                    Text(
+                        text = title.uppercase(),
+                        style = MaterialTheme.typography.titleMedium.copy(
+                            fontWeight = FontWeight.Bold,
+                            letterSpacing = 1.1.sp
+                        ),
+                        color = MaterialTheme.colorScheme.onSurface,
+                        maxLines = 1,
+                        overflow = TextOverflow.Ellipsis
+                    )
+                    Text(
+                        text = compactSubtitle,
+                        style = MaterialTheme.typography.labelSmall,
+                        color = forge.telemetryMuted,
+                        maxLines = 1,
+                        overflow = TextOverflow.Ellipsis
+                    )
+                }
+
+                StatusLed(label = statusLabel, color = statusColor)
+
+                IconButton(
+                    onClick = { infoExpanded = !infoExpanded },
+                    modifier = Modifier.size(48.dp)
+                ) {
+                    Icon(
+                        imageVector = if (infoExpanded) Icons.Default.ExpandLess else Icons.Outlined.Info,
+                        contentDescription = if (infoExpanded) "Hide header details" else "Show header details",
+                        tint = if (infoExpanded) forge.amber else MaterialTheme.colorScheme.onSurfaceVariant,
+                        modifier = Modifier.size(18.dp)
+                    )
+                }
+
+                if (trailingAction != null) {
+                    trailingAction()
+                }
+            }
+
+            AnimatedVisibility(
+                visible = infoExpanded,
+                enter = expandVertically(),
+                exit = shrinkVertically()
+            ) {
+                Column(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .background(MaterialTheme.colorScheme.background.copy(alpha = 0.72f))
+                        .padding(horizontal = 12.dp, vertical = 10.dp),
+                    verticalArrangement = Arrangement.spacedBy(8.dp)
+                ) {
+                    HorizontalDivider(color = forge.borderHairline)
+                    Text(
+                        text = infoDetail,
+                        style = MaterialTheme.typography.bodySmall,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant
+                    )
+                    if (metadataChips.isNotEmpty()) {
+                        Row(
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .horizontalScroll(rememberScrollState()),
+                            horizontalArrangement = Arrangement.spacedBy(8.dp)
+                        ) {
+                            metadataChips.forEach { (k, v) ->
+                                Row(
+                                    modifier = Modifier
+                                        .clip(RoundedCornerShape(3.dp))
+                                        .background(MaterialTheme.colorScheme.surface)
+                                        .border(1.dp, forge.borderHairline, RoundedCornerShape(3.dp))
+                                        .padding(horizontal = 8.dp, vertical = 4.dp),
+                                    horizontalArrangement = Arrangement.spacedBy(4.dp)
+                                ) {
+                                    Text(
+                                        text = "$k:",
+                                        style = MaterialTheme.typography.labelSmall,
+                                        color = forge.telemetryMuted
+                                    )
+                                    Text(
+                                        text = v,
+                                        style = MaterialTheme.typography.labelSmall.copy(
+                                            fontFamily = JetBrainsMonoFamily,
+                                            fontWeight = FontWeight.Bold
+                                        ),
+                                        color = forge.tacticalBlue
+                                    )
+                                }
+                            }
+                        }
+                    }
+                }
+            }
         }
     }
 }

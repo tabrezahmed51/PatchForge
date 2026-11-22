@@ -2,12 +2,19 @@ package com.example.data.repository
 
 import android.graphics.Bitmap
 import android.util.Log
+import com.example.core.AgentPermissionMode
+import com.example.core.AgentShellManager
+import com.example.core.ShellEnvironmentType
+import com.example.core.TerminalLogEntry
+import com.example.data.AuditFindingDao
 import com.example.data.ai.AgentPersona
 import com.example.data.ai.AiModelProfile
 import com.example.data.ai.AiReviewProvider
+import com.example.data.ai.AtomicPatchVerificationResult
 import com.example.data.ai.AuditEngineMode
 import com.example.data.ai.ChatTurn
 import com.example.data.ai.GroundedSearchResult
+import com.example.data.ai.ProposedShellStep
 import com.example.data.ai.ThirdPartyMultimodalClient
 import com.example.data.local.AiApiIntegrationConfig
 import com.example.data.local.AuditFinding
@@ -15,16 +22,24 @@ import com.example.data.local.AuditRunEntity
 import com.example.data.local.BackendConfig
 import com.example.data.local.BackendPreferences
 import com.example.data.local.ChatMessageEntity
+import com.example.data.local.ForgeTokenStatus
+import com.example.data.local.GitForgeProvider
 import com.example.data.local.PatchForgeDao
 import com.example.data.local.PatchStatus
 import com.example.data.local.PendingSyncActionEntity
+import com.example.data.local.SecureTokenStore
 import com.example.data.local.ThirdPartyAiVendor
 import com.example.data.remote.AnalyzeRequest
 import com.example.data.remote.CloudAuditFinding
 import com.example.data.remote.CloudAuditRun
 import com.example.data.remote.FastApiClientFactory
 import com.example.data.remote.FirestoreSyncRepository
+import com.example.data.remote.ForgeCommitResult
+import com.example.data.remote.ForgeRepoSnapshot
+import com.example.data.remote.GitForgeClient
+import com.example.data.remote.GitForgeUrlParser
 import com.example.data.remote.HealthResponse
+import com.example.data.remote.ParsedForgeRepo
 import com.example.data.remote.PatchApplyRequest
 import com.example.data.remote.WorkerEvent
 import com.example.data.remote.WorkerWebSocketClient
@@ -32,6 +47,7 @@ import com.example.data.remote.WsConnectionState
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.first
+import kotlinx.coroutines.flow.map
 import java.util.UUID
 
 private const val TAG = "PatchForgeRepository"
@@ -44,23 +60,39 @@ data class BranchDispatchResult(
 
 class PatchForgeRepository(
     private val dao: PatchForgeDao,
+    private val auditFindingDao: AuditFindingDao,
     private val preferences: BackendPreferences,
+    private val secureTokenStore: SecureTokenStore,
+    private val gitForgeClient: GitForgeClient,
+    private val shellManager: AgentShellManager,
     private val aiProvider: AiReviewProvider,
     private val thirdPartyClient: ThirdPartyMultimodalClient,
     private val firestoreSync: FirestoreSyncRepository,
     private val wsClient: WorkerWebSocketClient
 ) {
     val auditRuns: Flow<List<AuditRunEntity>> = dao.observeAuditRuns()
-    val allFindings: Flow<List<AuditFinding>> = dao.observeAllFindings()
+    val allFindings: Flow<List<AuditFinding>> = auditFindingDao.getAllFindings()
     val pendingSyncActions: Flow<List<PendingSyncActionEntity>> = dao.observePendingSyncActions()
     val chatMessages: Flow<List<ChatMessageEntity>> = dao.observeChatMessages()
     val backendConfig: Flow<BackendConfig> = preferences.configFlow
     val aiIntegrationConfig: Flow<AiApiIntegrationConfig> = preferences.aiIntegrationFlow
+    val permissionMode: Flow<AgentPermissionMode> =
+        preferences.agentPermissionModeIdFlow.map { AgentPermissionMode.fromId(it) }
+    val shellEnvironment: Flow<ShellEnvironmentType> =
+        preferences.shellEnvironmentIdFlow.map { ShellEnvironmentType.fromId(it) }
+    val forgeTokenStatuses: Flow<Map<GitForgeProvider, ForgeTokenStatus>> =
+        secureTokenStore.tokenStatusesFlow
     val wsConnectionState: Flow<WsConnectionState> = wsClient.connectionState
     val workerEvents: Flow<List<WorkerEvent>> = wsClient.events
 
     val activeProviderName: String
         get() = aiProvider.providerName
+
+    val isTermuxInstalled: Boolean
+        get() = shellManager.isTermuxInstalled()
+
+    val sandboxWorkspacePath: String
+        get() = shellManager.getWorkspacePath()
 
     fun observeCloudAuditRuns(userId: String): Flow<List<CloudAuditRun>> =
         firestoreSync.observeCloudAuditRuns(userId)
@@ -109,7 +141,7 @@ class PatchForgeRepository(
         } catch (e: CancellationException) {
             throw e
         } catch (e: Exception) {
-            Log.w(TAG, "FastAPI /health probe failed", e)
+            Log.w(TAG, "FastAPI /health unreachable (${e.message ?: "offline"}); continuing with local Gemini & Firestore")
             wsClient.recordLocalTelemetry(
                 worker = "rest-client",
                 eventType = "OFFLINE",
@@ -220,7 +252,7 @@ class PatchForgeRepository(
 
         dao.insertAuditRun(runEntity)
         if (findingEntities.isNotEmpty()) {
-            dao.insertFindings(findingEntities)
+            auditFindingDao.insertAll(findingEntities)
         }
 
         // Sync run & findings to Cloud Firestore under authenticated user scope
@@ -239,8 +271,12 @@ class PatchForgeRepository(
     }
 
     suspend fun updateFindingPatchStatus(findingId: String, status: String) {
-        dao.updateFindingPatchStatus(findingId, status)
+        auditFindingDao.updatePatchStatus(findingId, status)
         firestoreSync.updateCloudFindingStatus(findingId, status)
+    }
+
+    suspend fun deleteFinding(findingId: String) {
+        auditFindingDao.deleteById(findingId)
     }
 
     suspend fun dispatchPatchesToBranch(
@@ -279,7 +315,7 @@ class PatchForgeRepository(
             } catch (e: CancellationException) {
                 throw e
             } catch (e: Exception) {
-                Log.w(TAG, "FastAPI patch apply unreachable; queuing offline", e)
+                Log.w(TAG, "FastAPI patch apply unreachable (${e.message ?: "offline"}); queuing offline")
                 findings.forEach {
                     dao.updateFindingPatchStatus(it.id, PatchStatus.QUEUED_SYNC)
                     firestoreSync.updateCloudFindingStatus(it.id, PatchStatus.QUEUED_SYNC)
@@ -493,14 +529,183 @@ class PatchForgeRepository(
         userMessage: String,
         persona: AgentPersona,
         modelProfile: AiModelProfile,
-        auditContext: String?
+        auditContext: String?,
+        strictUdiffMode: Boolean = false
     ): Flow<String> = aiProvider.streamChatReply(
         history = history,
         userMessage = userMessage,
         persona = persona,
         modelProfile = modelProfile,
-        auditContext = auditContext
+        auditContext = auditContext,
+        strictUdiffMode = strictUdiffMode
     )
 
+    suspend fun verifyAndTightenAtomicPatch(
+        finding: AuditFinding,
+        sourceContext: String,
+        astSummary: String,
+        modelProfile: AiModelProfile
+    ): AtomicPatchVerificationResult {
+        val initialDiff = PatchGenerator.buildUnifiedDiff(finding)
+        wsClient.recordLocalTelemetry(
+            worker = "ast-verifier",
+            eventType = "PATCH_VERIFY_START",
+            message = "Self-verifying atomic UDIFF for ${finding.filePath} (${finding.lineBounds})"
+        )
+        val result = aiProvider.generateAndVerifyAtomicPatch(
+            filePath = finding.filePath,
+            lineBounds = finding.lineBounds,
+            threatCategory = finding.threatCategory,
+            description = finding.description,
+            sourceContext = sourceContext,
+            astSummary = astSummary,
+            initialDiff = initialDiff,
+            modelProfile = modelProfile
+        )
+        wsClient.recordLocalTelemetry(
+            worker = "ast-verifier",
+            eventType = if (result.astVerified) "AST_VERIFIED" else "AST_WARNING",
+            message = "${finding.id}: atomic=${result.isAtomic}, astOk=${result.astVerified} — ${result.verificationNotes.take(80)}"
+        )
+        return result
+    }
+
     suspend fun clearChatHistory() = dao.clearChatHistory()
+
+    // --- Global Permission Mode & Termux/Ubuntu Shell Environment ---
+
+    suspend fun savePermissionMode(mode: AgentPermissionMode) {
+        preferences.saveAgentPermissionMode(mode.id)
+        wsClient.recordLocalTelemetry(
+            worker = "policy-engine",
+            eventType = "PERMISSION_MODE",
+            message = "Global permission mode set to ${mode.label}"
+        )
+    }
+
+    suspend fun saveShellEnvironment(environment: ShellEnvironmentType) {
+        preferences.saveShellEnvironment(environment.id)
+        wsClient.recordLocalTelemetry(
+            worker = "shell-bridge",
+            eventType = "ENV_SWITCH",
+            message = "Active shell environment set to ${environment.label}"
+        )
+    }
+
+    suspend fun executeShellCommand(
+        command: String,
+        environment: ShellEnvironmentType,
+        approvedByOperator: Boolean
+    ): TerminalLogEntry {
+        val config = preferences.configFlow.first()
+        val entry = shellManager.execute(
+            command = command,
+            environment = environment,
+            fastApiBaseUrl = config.baseUrl,
+            fastApiBearerToken = config.bearerToken,
+            approvedByOperator = approvedByOperator
+        )
+        wsClient.recordLocalTelemetry(
+            worker = environment.id.lowercase(),
+            eventType = if (entry.exitCode == 0) "SHELL_OK" else "SHELL_EXIT_${entry.exitCode}",
+            message = "$ ${command.take(72)} (exit=${entry.exitCode})"
+        )
+        return entry
+    }
+
+    suspend fun proposeAgentShellPlan(
+        goal: String,
+        workspaceContext: String,
+        environment: ShellEnvironmentType,
+        modelProfile: AiModelProfile
+    ): List<ProposedShellStep> {
+        return aiProvider.proposeAgentShellPlan(
+            goal = goal,
+            workspaceContext = workspaceContext,
+            environmentLabel = environment.label,
+            modelProfile = modelProfile
+        )
+    }
+
+    suspend fun mirrorFileToSandbox(relativePath: String, content: String) {
+        shellManager.writeWorkspaceFile(relativePath, content)
+    }
+
+    // --- Multi-Forge Git Repository & Secure Access Token Integration ---
+
+    suspend fun saveForgeToken(provider: GitForgeProvider, rawToken: String) {
+        secureTokenStore.saveToken(provider, rawToken)
+        wsClient.recordLocalTelemetry(
+            worker = "vault",
+            eventType = "TOKEN_UPDATED",
+            message = "Stored encrypted ${provider.label} token in Android Keystore."
+        )
+    }
+
+    suspend fun clearForgeToken(provider: GitForgeProvider) {
+        secureTokenStore.clearToken(provider)
+        wsClient.recordLocalTelemetry(
+            worker = "vault",
+            eventType = "TOKEN_CLEARED",
+            message = "Cleared stored ${provider.label} token."
+        )
+    }
+
+    suspend fun inspectForgeRepository(
+        provider: GitForgeProvider,
+        repoInput: String,
+        branchOverride: String?
+    ): Result<ForgeRepoSnapshot> {
+        val parsed = GitForgeUrlParser.parse(repoInput, provider, branchOverride)
+            .getOrElse { return Result.failure(it) }
+        val token = secureTokenStore.getDecryptedToken(parsed.provider)
+        val result = gitForgeClient.inspectRepository(parsed, token)
+        result.onSuccess { snap ->
+            wsClient.recordLocalTelemetry(
+                worker = "git-forge",
+                eventType = "REPO_INSPECTED",
+                message = "Loaded ${snap.parsedRepo.provider.label}:${snap.displayName}@${snap.defaultBranch} (${snap.files.size} files)"
+            )
+        }
+        return result
+    }
+
+    suspend fun fetchForgeFile(
+        parsedRepo: ParsedForgeRepo,
+        branch: String,
+        filePath: String
+    ): Result<String> {
+        val token = secureTokenStore.getDecryptedToken(parsedRepo.provider)
+        val result = gitForgeClient.fetchFileContent(parsedRepo, branch, filePath, token)
+        result.onSuccess { content ->
+            shellManager.writeWorkspaceFile("${parsedRepo.repo}/$filePath", content)
+        }
+        return result
+    }
+
+    suspend fun commitRemoteFileFix(
+        parsedRepo: ParsedForgeRepo,
+        branch: String,
+        filePath: String,
+        updatedContent: String,
+        commitMessage: String
+    ): Result<ForgeCommitResult> {
+        val token = secureTokenStore.getDecryptedToken(parsedRepo.provider)
+        val result = gitForgeClient.commitFileFix(
+            parsedRepo = parsedRepo,
+            branch = branch,
+            filePath = filePath,
+            updatedContent = updatedContent,
+            commitMessage = commitMessage,
+            accessToken = token
+        )
+        result.onSuccess { commit ->
+            wsClient.recordLocalTelemetry(
+                worker = "git-forge",
+                eventType = "FIX_COMMITTED",
+                message = commit.message
+            )
+        }
+        return result
+    }
 }

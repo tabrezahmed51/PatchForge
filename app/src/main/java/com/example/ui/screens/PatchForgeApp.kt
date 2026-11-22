@@ -13,10 +13,12 @@ import androidx.compose.foundation.layout.safeDrawing
 import androidx.compose.foundation.layout.statusBars
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Build
+import androidx.compose.material.icons.filled.Dashboard
 import androidx.compose.material.icons.filled.Radar
 import androidx.compose.material.icons.filled.Settings
 import androidx.compose.material.icons.filled.SmartToy
 import androidx.compose.material.icons.outlined.Build
+import androidx.compose.material.icons.outlined.Dashboard
 import androidx.compose.material.icons.outlined.Radar
 import androidx.compose.material.icons.outlined.Settings
 import androidx.compose.material.icons.outlined.SmartToy
@@ -67,6 +69,7 @@ import com.google.firebase.Firebase
 import com.google.firebase.auth.FirebaseAuth
 import com.google.firebase.auth.auth
 
+const val ROUTE_DASHBOARD = "dashboard"
 const val ROUTE_SCAN = "scan_workspace"
 const val ROUTE_PATCHES = "patch_workbench"
 const val ROUTE_AGENT = "agent_chat"
@@ -81,6 +84,13 @@ private data class NavDestinationItem(
 )
 
 private val TopLevelDestinations = listOf(
+    NavDestinationItem(
+        route = ROUTE_DASHBOARD,
+        labelRes = R.string.nav_dashboard,
+        selectedIcon = Icons.Filled.Dashboard,
+        unselectedIcon = Icons.Outlined.Dashboard,
+        testTag = "nav_dashboard"
+    ),
     NavDestinationItem(
         route = ROUTE_SCAN,
         labelRes = R.string.nav_scan,
@@ -176,17 +186,19 @@ fun PatchForgeApp(
 ) {
     val navController = rememberNavController()
     val backStackEntry by navController.currentBackStackEntryAsState()
-    val currentRoute = backStackEntry?.destination?.route ?: ROUTE_SCAN
+    val currentRoute = backStackEntry?.destination?.route ?: ROUTE_DASHBOARD
     val snackbarHostState = remember { SnackbarHostState() }
     val forge = ForgeTheme.colors
 
     val allFindings by viewModel.allFindings.collectAsStateWithLifecycle()
     val pendingQueue by viewModel.pendingSyncActions.collectAsStateWithLifecycle()
+    val pendingApprovals by viewModel.pendingAgentActions.collectAsStateWithLifecycle()
 
     val pendingPatchCount = allFindings.count {
         it.patchStatus == PatchStatus.PENDING || it.patchStatus == PatchStatus.APPROVED
     }
     val activeQueueCount = pendingQueue.count { it.status == "QUEUED" || it.status == "FAILED" }
+    val approvalCount = pendingApprovals.size
 
     LaunchedEffect(Unit) {
         viewModel.snackbarEvents.collect { msg ->
@@ -239,6 +251,7 @@ fun PatchForgeApp(
                             val selected = currentRoute == dest.route
                             val badgeCount = when (dest.route) {
                                 ROUTE_PATCHES -> pendingPatchCount
+                                ROUTE_AGENT -> approvalCount
                                 ROUTE_SETTINGS -> activeQueueCount
                                 else -> 0
                             }
@@ -277,7 +290,9 @@ fun PatchForgeApp(
                             userDisplayName = userDisplayName,
                             userEmail = userEmail,
                             onSignOut = onSignOut,
-                            onNavigateToPatches = { navigateTo(ROUTE_PATCHES) }
+                            onNavigateToScan = { navigateTo(ROUTE_SCAN) },
+                            onNavigateToPatches = { navigateTo(ROUTE_PATCHES) },
+                            onNavigateToAgent = { navigateTo(ROUTE_AGENT) }
                         )
                     }
                 }
@@ -306,6 +321,7 @@ fun PatchForgeApp(
                             val selected = currentRoute == dest.route
                             val badgeCount = when (dest.route) {
                                 ROUTE_PATCHES -> pendingPatchCount
+                                ROUTE_AGENT -> approvalCount
                                 ROUTE_SETTINGS -> activeQueueCount
                                 else -> 0
                             }
@@ -349,7 +365,9 @@ fun PatchForgeApp(
                         userDisplayName = userDisplayName,
                         userEmail = userEmail,
                         onSignOut = onSignOut,
-                        onNavigateToPatches = { navigateTo(ROUTE_PATCHES) }
+                        onNavigateToScan = { navigateTo(ROUTE_SCAN) },
+                        onNavigateToPatches = { navigateTo(ROUTE_PATCHES) },
+                        onNavigateToAgent = { navigateTo(ROUTE_AGENT) }
                     )
                 }
             }
@@ -389,12 +407,23 @@ private fun PatchForgeNavHost(
     userDisplayName: String,
     userEmail: String?,
     onSignOut: () -> Unit,
-    onNavigateToPatches: () -> Unit
+    onNavigateToScan: () -> Unit,
+    onNavigateToPatches: () -> Unit,
+    onNavigateToAgent: () -> Unit
 ) {
     NavHost(
         navController = navController,
-        startDestination = ROUTE_SCAN
+        startDestination = ROUTE_DASHBOARD
     ) {
+        composable(ROUTE_DASHBOARD) {
+            DashboardScreen(
+                viewModel = viewModel,
+                userDisplayName = userDisplayName,
+                onNavigateToScan = onNavigateToScan,
+                onNavigateToPatches = onNavigateToPatches,
+                onNavigateToAgent = onNavigateToAgent
+            )
+        }
         composable(ROUTE_SCAN) {
             ScanWorkspaceScreen(
                 viewModel = viewModel,
