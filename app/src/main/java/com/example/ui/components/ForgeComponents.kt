@@ -135,6 +135,7 @@ fun ForgeDynamicHeader(
     infoDetail: String,
     metadataChips: List<Pair<String, String>> = emptyList(),
     trailingAction: (@Composable () -> Unit)? = null,
+    embossedTitle: Boolean = false,
     modifier: Modifier = Modifier
 ) {
     val forge = ForgeTheme.colors
@@ -157,20 +158,29 @@ fun ForgeDynamicHeader(
                 Box(
                     modifier = Modifier
                         .width(3.dp)
-                        .height(26.dp)
+                        .height(if (embossedTitle) 30.dp else 26.dp)
                         .background(forge.amber)
                 )
                 Column(modifier = Modifier.weight(1f)) {
-                    Text(
-                        text = title.uppercase(),
-                        style = MaterialTheme.typography.titleMedium.copy(
-                            fontWeight = FontWeight.Bold,
-                            letterSpacing = 1.1.sp
-                        ),
-                        color = MaterialTheme.colorScheme.onSurface,
-                        maxLines = 1,
-                        overflow = TextOverflow.Ellipsis
-                    )
+                    if (embossedTitle) {
+                        EmbossedForgeWordmark(
+                            text = title,
+                            fontSize = 19.sp,
+                            letterSpacing = 2.sp,
+                            depthScale = 0.72f
+                        )
+                    } else {
+                        Text(
+                            text = title.uppercase(),
+                            style = MaterialTheme.typography.titleMedium.copy(
+                                fontWeight = FontWeight.Bold,
+                                letterSpacing = 1.1.sp
+                            ),
+                            color = MaterialTheme.colorScheme.onSurface,
+                            maxLines = 1,
+                            overflow = TextOverflow.Ellipsis
+                        )
+                    }
                     Text(
                         text = compactSubtitle,
                         style = MaterialTheme.typography.labelSmall,

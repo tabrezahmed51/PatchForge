@@ -28,19 +28,19 @@ enum class AgentPermissionMode(
         id = "AUTONOMOUS",
         label = "Autonomous Control",
         shortLabel = "AUTONOMOUS",
-        summary = "Auto-runs read and workspace commands. Destructive commands and remote repo pushes still require explicit safety confirmation."
+        summary = "Auto-runs workspace commands. Destructive ops & repo pushes still ask."
     ),
     ASK_WHEN_NEEDED(
         id = "ASK_WHEN_NEEDED",
         label = "Ask When Needed",
         shortLabel = "ASK WHEN NEEDED",
-        summary = "Auto-runs safe read-only inspection commands. Requires operator approval before file writes, installs, or destructive actions."
+        summary = "Auto-runs read-only checks. Asks before writes or destructive ops."
     ),
     ALWAYS_ASK(
         id = "ALWAYS_ASK",
         label = "Always Ask Before Acting",
         shortLabel = "ALWAYS ASK",
-        summary = "Requires explicit operator approval before every shell command, file modification, or repository action."
+        summary = "Requires approval before every shell or repo action."
     );
 
     companion object {
@@ -57,17 +57,17 @@ enum class ShellEnvironmentType(
     ANDROID_SANDBOX(
         id = "ANDROID_SANDBOX",
         label = "Local Sandbox",
-        description = "On-device private workspace shell (no root or external app required)"
+        description = "Private on-device shell (no root needed)"
     ),
     TERMUX_BRIDGE(
         id = "TERMUX_BRIDGE",
         label = "Termux Bridge",
-        description = "Dispatches commands to Termux (com.termux) via RUN_COMMAND intent"
+        description = "Runs in Termux via RUN_COMMAND intent"
     ),
     UBUNTU_REMOTE(
         id = "UBUNTU_REMOTE",
         label = "Ubuntu Runner",
-        description = "Executes commands in remote Ubuntu / FastAPI container (/api/v1/terminal/exec)"
+        description = "Remote Ubuntu container (/api/v1/terminal/exec)"
     );
 
     companion object {
@@ -236,7 +236,7 @@ class AgentShellManager(private val context: Context) {
         }
     }
 
-    fun getWorkspacePath(): String = workspaceDir.absolutePath
+    fun getWorkspacePath(): String = File(context.filesDir, "patchforge_workspace").absolutePath
 
     suspend fun writeWorkspaceFile(relativePath: String, content: String): Result<File> =
         withContext(Dispatchers.IO) {

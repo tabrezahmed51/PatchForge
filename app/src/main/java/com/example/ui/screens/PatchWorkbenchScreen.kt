@@ -14,6 +14,7 @@ import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
+import androidx.compose.foundation.layout.imePadding
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
@@ -68,6 +69,7 @@ import com.example.ui.components.MonospaceDiffView
 import com.example.ui.components.SectionHeaderLabel
 import com.example.ui.components.SeverityBadge
 import com.example.ui.components.StatusLed
+import com.example.ui.components.bringIntoViewOnImeFocus
 import com.example.ui.theme.ForgeTheme
 import com.example.ui.theme.JetBrainsMonoFamily
 import com.example.ui.viewmodel.PatchForgeViewModel
@@ -102,7 +104,7 @@ fun PatchWorkbenchScreen(
             text = {
                 Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
                     Text(
-                        text = "Approval Required: Commit this atomic fix to ${fix.parsedRepo.provider.label} (${fix.parsedRepo.fullPath} @ ${fix.branch}).",
+                        text = "Commit atomic fix to ${fix.parsedRepo.provider.label} (${fix.parsedRepo.fullPath} @ ${fix.branch})?",
                         style = MaterialTheme.typography.bodySmall,
                         color = MaterialTheme.colorScheme.onSurface
                     )
@@ -165,7 +167,8 @@ fun PatchWorkbenchScreen(
         LazyColumn(
             modifier = Modifier
                 .fillMaxSize()
-                .widthIn(max = 840.dp),
+                .widthIn(max = 840.dp)
+                .imePadding(),
             contentPadding = PaddingValues(horizontal = 14.dp, vertical = 10.dp),
             verticalArrangement = Arrangement.spacedBy(10.dp)
         ) {
@@ -326,6 +329,7 @@ fun PatchWorkbenchScreen(
                                 ),
                                 modifier = Modifier
                                     .fillMaxWidth()
+                                    .bringIntoViewOnImeFocus(extraBottomPadding = 24.dp)
                                     .testTag("target_branch_input")
                             )
 
@@ -349,6 +353,7 @@ fun PatchWorkbenchScreen(
                                 ),
                                 modifier = Modifier
                                     .fillMaxWidth()
+                                    .bringIntoViewOnImeFocus(extraBottomPadding = 24.dp)
                                     .testTag("commit_message_input")
                             )
                         }
@@ -483,7 +488,7 @@ private fun PatchDiffCard(
                     trackColor = forge.borderHairline
                 )
                 Text(
-                    text = "Running 2-stage Atomic UDIFF + AST Self-Verification…",
+                    text = "Verifying Atomic UDIFF against AST…",
                     style = MaterialTheme.typography.labelSmall,
                     color = forge.tacticalBlue
                 )

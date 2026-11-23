@@ -90,6 +90,7 @@ import com.example.ui.components.ForgePanel
 import com.example.ui.components.RiskGaugeMeter
 import com.example.ui.components.SectionHeaderLabel
 import com.example.ui.components.SeverityBadge
+import com.example.ui.components.bringIntoViewOnImeFocus
 import com.example.ui.theme.ForgeTheme
 import com.example.ui.theme.JetBrainsMonoFamily
 import com.example.ui.viewmodel.AuditExecutionState
@@ -294,6 +295,7 @@ fun ScanWorkspaceScreen(
                                             ),
                                             modifier = Modifier
                                                 .fillMaxWidth()
+                                                .bringIntoViewOnImeFocus(extraBottomPadding = 24.dp)
                                                 .testTag("scan_file_path_input")
                                         )
 
@@ -393,6 +395,7 @@ fun ScanWorkspaceScreen(
                                             ),
                                             modifier = Modifier
                                                 .fillMaxWidth()
+                                                .bringIntoViewOnImeFocus(extraBottomPadding = 20.dp)
                                                 .testTag("scan_payload_input")
                                         )
                                     }
@@ -487,7 +490,9 @@ fun ScanWorkspaceScreen(
                                             color = forge.tacticalBlue
                                         )
                                         Row(
-                                            modifier = Modifier.fillMaxWidth(),
+                                            modifier = Modifier
+                                                .fillMaxWidth()
+                                                .bringIntoViewOnImeFocus(extraBottomPadding = 24.dp),
                                             horizontalArrangement = Arrangement.spacedBy(8.dp),
                                             verticalAlignment = Alignment.CenterVertically
                                         ) {

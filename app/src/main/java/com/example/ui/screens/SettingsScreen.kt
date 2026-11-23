@@ -25,6 +25,7 @@ import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
+import androidx.compose.foundation.layout.imePadding
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
@@ -102,6 +103,7 @@ import com.example.data.remote.WsConnectionState
 import com.example.ui.components.ForgePanel
 import com.example.ui.components.SectionHeaderLabel
 import com.example.ui.components.StatusLed
+import com.example.ui.components.bringIntoViewOnImeFocus
 import com.example.ui.theme.ForgeTheme
 import com.example.ui.theme.JetBrainsMonoFamily
 import com.example.ui.viewmodel.BackendHealthState
@@ -237,7 +239,7 @@ private fun AiMultimodalSettingsTab(viewModel: PatchForgeViewModel) {
     var showApiKeys by rememberSaveable { mutableStateOf(false) }
 
     var multimodalPrompt by rememberSaveable {
-        mutableStateOf("Analyze this architecture diagram or code screenshot for security and supply-chain risks.")
+        mutableStateOf("Audit this diagram or screenshot for security risks.")
     }
     var selectedBitmap by remember { mutableStateOf<Bitmap?>(null) }
     var isRecording by remember { mutableStateOf(false) }
@@ -298,8 +300,10 @@ private fun AiMultimodalSettingsTab(viewModel: PatchForgeViewModel) {
         ?: ThirdPartyAiVendor.NATIVE_GEMINI
 
     LazyColumn(
-        modifier = Modifier.fillMaxSize(),
-        contentPadding = PaddingValues(horizontal = 16.dp, vertical = 14.dp),
+        modifier = Modifier
+            .fillMaxSize()
+            .imePadding(),
+        contentPadding = PaddingValues(start = 16.dp, top = 14.dp, end = 16.dp, bottom = 24.dp),
         verticalArrangement = Arrangement.spacedBy(12.dp)
     ) {
         // 3rd-Party AI API Key Configuration Panel
@@ -311,7 +315,7 @@ private fun AiMultimodalSettingsTab(viewModel: PatchForgeViewModel) {
                 )
                 Spacer(modifier = Modifier.height(6.dp))
                 Text(
-                    text = "Native Gemini runs keyless via Firebase AI Logic + App Check. Add optional 3rd-party API keys (stored locally on-device in DataStore) to route multimodal analysis through OpenAI, Anthropic, or OpenRouter.",
+                    text = "Native Gemini runs keyless via Firebase AI Logic. Optional keys route 3rd-party models locally.",
                     style = MaterialTheme.typography.bodySmall,
                     color = MaterialTheme.colorScheme.onSurfaceVariant
                 )
@@ -362,7 +366,7 @@ private fun AiMultimodalSettingsTab(viewModel: PatchForgeViewModel) {
                             )
                             Spacer(modifier = Modifier.width(8.dp))
                             Text(
-                                text = "Firebase AI Logic active (No API key required). Supports gemini-4-carbon (High Thinking), gemini-4-hydrogen (Search Grounding & Vision), and gemini-3.5-transcribe.",
+                                text = "Keyless Firebase AI Logic · 4-Carbon, 4-Hydrogen & Voice Transcribe.",
                                 style = MaterialTheme.typography.bodySmall,
                                 color = MaterialTheme.colorScheme.onSurface
                             )
@@ -626,6 +630,7 @@ private fun AiMultimodalSettingsTab(viewModel: PatchForgeViewModel) {
                     ),
                     modifier = Modifier
                         .fillMaxWidth()
+                        .bringIntoViewOnImeFocus(extraBottomPadding = 24.dp)
                         .testTag("multimodal_prompt_input")
                 )
 
@@ -758,6 +763,7 @@ private fun ApiKeyField(
         ),
         modifier = Modifier
             .fillMaxWidth()
+            .bringIntoViewOnImeFocus(extraBottomPadding = 24.dp)
             .testTag(tag)
     )
 }
@@ -785,6 +791,7 @@ private fun PlainMonoField(
         ),
         modifier = Modifier
             .fillMaxWidth()
+            .bringIntoViewOnImeFocus(extraBottomPadding = 24.dp)
             .testTag(tag)
     )
 }
@@ -817,8 +824,10 @@ private fun BackendSyncSettingsTab(
     }
 
     LazyColumn(
-        modifier = Modifier.fillMaxSize(),
-        contentPadding = PaddingValues(horizontal = 16.dp, vertical = 14.dp),
+        modifier = Modifier
+            .fillMaxSize()
+            .imePadding(),
+        contentPadding = PaddingValues(start = 16.dp, top = 14.dp, end = 16.dp, bottom = 24.dp),
         verticalArrangement = Arrangement.spacedBy(12.dp)
     ) {
         // Operator Session & Cloud Firestore Sync Status
@@ -918,7 +927,7 @@ private fun BackendSyncSettingsTab(
                     BackendHealthState.Unchecked -> Triple(
                         "UNPROBED",
                         forge.telemetryMuted,
-                        "Probe /health to verify FastAPI + PostgreSQL + Redis/Celery workers."
+                        "Probe /health to check FastAPI, DB & workers."
                     )
                     BackendHealthState.Probing -> Triple(
                         "PROBING…",
@@ -928,12 +937,12 @@ private fun BackendSyncSettingsTab(
                     is BackendHealthState.Online -> Triple(
                         "ONLINE · ${h.health.workerBackend.uppercase()}",
                         forge.verifiedGreen,
-                        "Service=${h.health.service} · Workers=${h.health.activeWorkers} · DB=${if (h.health.dbConnected) "OK" else "DOWN"}"
+                        "${h.health.service} · Workers ${h.health.activeWorkers} · DB ${if (h.health.dbConnected) "OK" else "DOWN"}"
                     )
                     is BackendHealthState.Offline -> Triple(
-                        "OFFLINE (ROOM + FIRESTORE ACTIVE)",
+                        "OFFLINE (ROOM + FIRESTORE)",
                         forge.amber,
-                        "Fallback active: ${h.reason}. Mutations buffer safely in Room Retry Queue."
+                        "Offline (${h.reason}). Updates buffered in Room queue."
                     )
                 }
 
@@ -985,6 +994,7 @@ private fun BackendSyncSettingsTab(
                     ),
                     modifier = Modifier
                         .fillMaxWidth()
+                        .bringIntoViewOnImeFocus(extraBottomPadding = 24.dp)
                         .testTag("fastapi_token_input")
                 )
 
@@ -1103,7 +1113,7 @@ private fun BackendSyncSettingsTab(
                 ) {
                     if (workerEvents.isEmpty()) {
                         Text(
-                            text = "// No telemetry events yet. Execute an audit or connect to ws://<host>/ws/events.",
+                            text = "// No events yet. Connect to ws://<host>/ws/events.",
                             style = MaterialTheme.typography.labelSmall.copy(fontFamily = JetBrainsMonoFamily),
                             color = forge.telemetryMuted
                         )

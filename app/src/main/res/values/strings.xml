@@ -10,8 +10,8 @@
 
     <!-- Dashboard & Multi-Forge Git -->
     <string name="dashboard_title">PatchForge</string>
-    <string name="dashboard_subtitle">Multi-Forge Repos &amp; Agent Policy</string>
-    <string name="dashboard_info_detail">Inspect GitHub, GitLab, Codeberg &amp; Hugging Face repos, manage Keystore-encrypted tokens, and govern shell execution modes.</string>
+    <string name="dashboard_subtitle">Multi-Forge &amp; Agent Policy</string>
+    <string name="dashboard_info_detail">Inspect Git repos, store encrypted tokens &amp; govern shell policy.</string>
     <string name="dashboard_repo_hint">https://github.com/owner/repo or owner/repo</string>
     <string name="dashboard_inspect_repo">Inspect</string>
     <string name="agent_tab_chat">Triage</string>
@@ -19,8 +19,8 @@
 
     <!-- Scan Workspace -->
     <string name="scan_title">Scan Workspace</string>
-    <string name="scan_header_subtitle">Supply-Chain &amp; AST PR Auditor</string>
-    <string name="scan_info_detail">Dual-engine analyzer combining Socket-style manifest threat detection and AST semantic PR review with atomic patch synthesis.</string>
+    <string name="scan_header_subtitle">Supply-Chain &amp; AST Auditor</string>
+    <string name="scan_info_detail">Dual-engine threat detection, AST review &amp; atomic patches.</string>
     <string name="scan_step_target">1 Target</string>
     <string name="scan_step_payload">2 Payload</string>
     <string name="scan_step_engine">3 Engine</string>
@@ -31,10 +31,10 @@
     <string name="scan_running">Analyzing…</string>
     <string name="scan_high_thinking_label">High Thinking (4-Carbon)</string>
     <string name="scan_input_file_label">Target File Path</string>
-    <string name="scan_input_code_label">Manifest or PR Diff Payload</string>
+    <string name="scan_input_code_label">Manifest or Diff Payload</string>
     <string name="scan_quick_fixtures">Quick Fixtures</string>
     <string name="scan_empty_findings_title">No Active Findings</string>
-    <string name="scan_empty_findings_body">Select a target and payload in the wizard above, then tap Execute Audit.</string>
+    <string name="scan_empty_findings_body">Pick a target above, then tap Execute Audit.</string>
     <string name="scan_search_title">Live CVE Grounding</string>
     <string name="scan_search_placeholder">Package, CVE ID, or advisory…</string>
     <string name="scan_search_action">Verify</string>
@@ -42,7 +42,7 @@
     <!-- Patch Workbench -->
     <string name="patches_title">Patch Loop</string>
     <string name="patches_subtitle">Atomic UDIFF &amp; AST Gate</string>
-    <string name="patches_info_detail">Verify surgical Unified Diffs against AST metrics, approve or copy patches, and commit directly to connected Git forges.</string>
+    <string name="patches_info_detail">Verify atomic diffs against AST, approve &amp; commit to Git.</string>
     <string name="patches_copy_single">Copy Patch</string>
     <string name="patches_copy_bundle">Copy Bundle</string>
     <string name="patches_approve">Approve</string>
@@ -50,15 +50,15 @@
     <string name="patches_dispatch_branch">Apply Branch</string>
     <string name="patches_target_branch_label">Target Branch</string>
     <string name="patches_commit_msg_label">Commit Message</string>
-    <string name="patches_empty_title">No Patches Generated</string>
-    <string name="patches_empty_body">Run an audit in Scan to generate atomic self-healing diffs.</string>
+    <string name="patches_empty_title">No Patches Yet</string>
+    <string name="patches_empty_body">Run a Scan audit to generate atomic diffs.</string>
 
     <!-- Agent Chat & Shell -->
     <string name="agent_title">OpenCode Agent</string>
     <string name="agent_subtitle">Triage &amp; Shell TUI</string>
-    <string name="agent_info_detail">Multi-turn security copilot with Strict UDIFF Mode (zero-prose atomic diffs), voice transcription, and policy-gated shell execution.</string>
-    <string name="agent_input_placeholder">Ask about CVEs, AST, or request UDIFF…</string>
-    <string name="agent_udiff_placeholder">Describe target fix for strict UDIFF…</string>
+    <string name="agent_info_detail">Security copilot with Strict UDIFF, voice input &amp; gated shell.</string>
+    <string name="agent_input_placeholder">Ask about CVEs, AST, or UDIFF…</string>
+    <string name="agent_udiff_placeholder">Describe fix for Strict UDIFF…</string>
     <string name="agent_send_cd">Send message</string>
     <string name="agent_voice_record_cd">Record voice prompt</string>
     <string name="agent_voice_stop_cd">Stop recording and transcribe</string>
@@ -66,26 +66,26 @@
     <string name="agent_attach_context">Context</string>
     <string name="agent_strict_udiff">Strict UDIFF</string>
     <string name="agent_empty_title">TUI Session Ready</string>
-    <string name="agent_empty_body">Toggle Strict UDIFF for zero-prose Git diffs, or open Config to pick persona &amp; model tier.</string>
+    <string name="agent_empty_body">Toggle Strict UDIFF for raw diffs, or tap Tune for model options.</string>
 
     <!-- Settings & Control Plane -->
     <string name="settings_title">Settings</string>
-    <string name="settings_subtitle">AI APIs, Cloud Sync &amp; FastAPI</string>
+    <string name="settings_subtitle">AI Providers, Sync &amp; FastAPI</string>
     <string name="settings_tab_ai">AI Multimodal API</string>
     <string name="settings_tab_backend">Backend &amp; Sync</string>
-    <string name="settings_save_ai">Save AI API Config</string>
+    <string name="settings_save_ai">Save AI Config</string>
     <string name="settings_clear_keys">Clear 3rd-Party Keys</string>
     <string name="settings_pick_image">Attach Screenshot / Diagram</string>
-    <string name="settings_run_multimodal">Run Multimodal Analysis</string>
+    <string name="settings_run_multimodal">Run Analysis</string>
     <string name="settings_sign_out">Sign Out</string>
     <string name="control_title">FastAPI Control Plane</string>
-    <string name="control_subtitle">REST / WS Workers &amp; Retry Queue</string>
-    <string name="control_endpoint_label">FastAPI Backend Base URL</string>
+    <string name="control_subtitle">REST / WS Workers &amp; Queue</string>
+    <string name="control_endpoint_label">FastAPI Base URL</string>
     <string name="control_token_label">Bearer Token (Optional)</string>
     <string name="control_save_probe">Save &amp; Probe /health</string>
     <string name="control_ws_connect">Connect Stream</string>
     <string name="control_ws_disconnect">Disconnect</string>
     <string name="control_retry_all">Retry Queue</string>
-    <string name="control_clear_queue">Purge Completed</string>
-    <string name="control_queue_empty">Offline retry queue is clear. Pending remote mutations buffer here if FastAPI is unreachable.</string>
+    <string name="control_clear_queue">Purge Done</string>
+    <string name="control_queue_empty">Retry queue clear. Offline updates buffer here automatically.</string>
 </resources>

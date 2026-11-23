@@ -92,6 +92,7 @@ fun AgentTerminalSection(
     val pendingActions by viewModel.pendingAgentActions.collectAsStateWithLifecycle()
     val terminalLogs by viewModel.terminalLogs.collectAsStateWithLifecycle()
     val isRunning by viewModel.isRunningShellAction.collectAsStateWithLifecycle()
+    val isTermuxInstalled by viewModel.isTermuxInstalled.collectAsStateWithLifecycle()
     val forge = ForgeTheme.colors
 
     var governanceExpanded by rememberSaveable { mutableStateOf(false) }
@@ -245,7 +246,7 @@ fun AgentTerminalSection(
                         Text(
                             text = "${permissionMode.summary} · ${shellEnv.description}" +
                                 if (shellEnv == ShellEnvironmentType.TERMUX_BRIDGE) {
-                                    if (viewModel.isTermuxInstalled) " [Termux detected]" else " [Install Termux]"
+                                    if (isTermuxInstalled) " [Termux detected]" else " [Install Termux]"
                                 } else "",
                             style = MaterialTheme.typography.labelSmall,
                             color = MaterialTheme.colorScheme.onSurfaceVariant
@@ -308,7 +309,7 @@ fun AgentTerminalSection(
                             overflow = TextOverflow.Ellipsis
                         )
                         Text(
-                            text = "// Switch between '$ CMD' (direct shell) and 'AI PLAN' (Gemini command planner) below.",
+                            text = "// Toggle '$' (shell) or 'AI' (planner) below.",
                             style = MaterialTheme.typography.labelSmall.copy(fontFamily = JetBrainsMonoFamily),
                             color = forge.telemetryMuted
                         )

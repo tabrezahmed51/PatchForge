@@ -53,6 +53,7 @@ import com.example.data.repository.PatchGenerator
 import com.google.firebase.firestore.FirebaseFirestore
 import com.google.firebase.firestore.FirebaseFirestoreException
 import kotlinx.coroutines.CancellationException
+import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.flow.MutableSharedFlow
 import kotlinx.coroutines.flow.MutableStateFlow
@@ -193,7 +194,8 @@ class PatchForgeViewModel(
     val forgeTokenStatuses: StateFlow<Map<GitForgeProvider, ForgeTokenStatus>> = repository.forgeTokenStatuses
         .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), emptyMap())
 
-    val isTermuxInstalled: Boolean = repository.isTermuxInstalled
+    private val _isTermuxInstalled = MutableStateFlow(false)
+    val isTermuxInstalled: StateFlow<Boolean> = _isTermuxInstalled.asStateFlow()
     val sandboxWorkspacePath: String = repository.sandboxWorkspacePath
 
     val wsConnectionState: StateFlow<WsConnectionState> = repository.wsConnectionState
@@ -301,6 +303,9 @@ class PatchForgeViewModel(
     init {
         viewModelScope.launch {
             repository.ensureCloudUserProfile(userDisplayName, userEmail)
+        }
+        viewModelScope.launch(Dispatchers.IO) {
+            _isTermuxInstalled.value = repository.isTermuxInstalled
         }
     }
 

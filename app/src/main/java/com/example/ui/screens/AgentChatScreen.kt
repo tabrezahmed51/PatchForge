@@ -461,13 +461,13 @@ fun AgentChatScreen(
                                 Spacer(modifier = Modifier.height(8.dp))
                                 val starters = if (agentState.strictUdiffMode) {
                                     listOf(
-                                        "Generate an atomic UDIFF removing malicious postinstall script in package.json.",
-                                        "Emit a strict UDIFF replacing shell=True with argument-list subprocess execution."
+                                        "UDIFF: Remove malicious postinstall in package.json.",
+                                        "UDIFF: Replace shell=True with arg-list subprocess."
                                     )
                                 } else {
                                     listOf(
-                                        "Explain the blast radius of a malicious postinstall script in package.json.",
-                                        "Audit our active findings and prioritize which atomic patch to merge first."
+                                        "Explain blast radius of malicious postinstall scripts.",
+                                        "Prioritize active findings for atomic patching."
                                     )
                                 }
                                 Column(verticalArrangement = Arrangement.spacedBy(6.dp)) {
